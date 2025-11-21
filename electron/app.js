@@ -9,6 +9,17 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeNavigation();
     initializeEventHandlers();
     loadDefaultConfig();
+    // Auto-load conversion table and report when config is loaded
+    document.addEventListener('configLoaded', () => {
+        // Editor: auto-load conversion table
+        if (document.getElementById('editor')) {
+            loadConversionTable();
+        }
+        // Report: auto-load report
+        if (document.getElementById('report')) {
+            loadReport();
+        }
+    });
 });
 
 // Navigation
@@ -31,6 +42,25 @@ let pathsManuallyEdited = {
 };
 
 function initializeEventHandlers() {
+        // Analyse: Create Conversion Table
+        const runAnalyseBtn = document.getElementById('runAnalyseBtn');
+        if (runAnalyseBtn) {
+            runAnalyseBtn.addEventListener('click', runAnalysis);
+        }
+
+        // Execute: Start Conversion
+        const runBidsifyBtn = document.getElementById('runBidsifyBtn');
+        if (runBidsifyBtn) {
+            runBidsifyBtn.addEventListener('click', runBidsification);
+        }
+
+        // Report: Create Report
+        const createReportBtn = document.getElementById('createReportBtn');
+        if (createReportBtn) {
+            createReportBtn.addEventListener('click', async () => {
+                await runReportWithMainConfig();
+            });
+        }
     // Set placeholders dynamically to show <project>
     document.getElementById('config_raw_path').placeholder = 'Auto: {root}/{project}/raw';
     document.getElementById('config_bids_path').placeholder = 'Auto: {root}/{project}/BIDS';
@@ -38,6 +68,73 @@ function initializeEventHandlers() {
     // Step 1: Configuration
     document.getElementById('loadConfigBtn').addEventListener('click', loadConfigFile);
     document.getElementById('saveConfigBtn').addEventListener('click', saveConfigFile);
+
+    function loadConversionTable() {
+        // Implement logic to load bids_conversion.tsv into the editor
+        // ...
+        console.log('Auto-loading conversion table in Editor');
+    }
+
+    function loadReport() {
+        // Implement logic to load report into the Report page
+        // ...
+        console.log('Auto-loading report in Report page');
+    }
+
+
+    // Helper: Run report with main config file
+    async function runReportWithMainConfig() {
+        if (!window.electronAPI) {
+            alert('Electron API not available');
+            return;
+        }
+        // If no saved config file is available, we can use the in-memory `currentConfig`
+        // by saving it as a temporary config file via the main process.
+        let configFileToUse = window.currentConfigFilePath || null;
+        if (!configFileToUse) {
+            if (!currentConfig) {
+                alert('No configuration loaded. Please load or create a configuration first.');
+                return;
+            }
+            // Auto-save the in-memory configuration to a temporary file and use it for
+            // report generation. This avoids prompting the user to save; the temp file
+            // is ephemeral and won't overwrite any existing config file.
+            try {
+                const tempPath = await window.electronAPI.saveTempConfig(currentConfig);
+                configFileToUse = tempPath;
+            } catch (err) {
+                alert('Failed to create temporary config: ' + err.message);
+                return;
+            }
+        }
+        // Check for unsaved changes and automatically save them to a temp config
+        // so we can generate a report without prompting the user to save.
+        const newConfig = collectConfigFromForm();
+        const configChanged = JSON.stringify(currentConfig) !== JSON.stringify(newConfig);
+        if (configChanged) {
+            currentConfig = newConfig;
+            try {
+                // Save the in-memory config as a temporary file so the report
+                // generator can read it without showing Save dialogs.
+                const tempPath = await window.electronAPI.saveTempConfig(newConfig);
+                configFileToUse = tempPath;
+            } catch (err) {
+                alert('❌ Failed to create temporary config: ' + err.message);
+                return;
+            }
+        }
+        // Run bidsify.py --report --config <main config path>
+        try {
+            const result = await window.electronAPI.runBidsifyWithArgs(['--report', '--config', configFileToUse]);
+            if (result.success) {
+                alert('✅ Report created successfully');
+            } else {
+                alert('❌ Error creating report: ' + (result.error || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('❌ Failed to create report: ' + err.message);
+        }
+    }
     
     // Track manual edits to paths
     document.getElementById('config_raw_path').addEventListener('input', (e) => {
@@ -82,10 +179,10 @@ function initializeEventHandlers() {
     document.getElementById('config_root_path').addEventListener('input', updatePathsFromRoot);
     document.getElementById('config_project_name').addEventListener('input', updatePathsFromRoot);
     
-    const nextBtn = document.getElementById('nextToAnalyseBtn');
+    const nextBtn = document.getElementById('nextToEditorBtn');
     if (nextBtn) {
-        nextBtn.addEventListener('click', () => {
-            console.log('Next to Analyse clicked');
+        nextBtn.addEventListener('click', async () => {
+            console.log('Next to Editor clicked');
             if (validateConfig()) {
                 const newConfig = collectConfigFromForm();
                 
@@ -95,61 +192,57 @@ function initializeEventHandlers() {
                 if (configChanged && currentConfig !== null) {
                     const confirmProceed = confirm(
                         '⚠️ You have unsaved configuration changes.\n\n' +
-                        'Do you want to save your configuration before proceeding to Analyse?\n\n' +
+                        'Do you want to save your configuration before proceeding to Editor?\n\n' +
                         'Click "OK" to save and continue, or "Cancel" to continue without saving.'
                     );
                     
                     if (confirmProceed) {
-                        // Save config first
-                        saveConfigFile().then(() => {
+                        // Save config first (await to keep navigation in order)
+                        try {
+                            await saveConfigFile();
                             currentConfig = newConfig;
-                            switchView('analyse');
-                        }).catch(error => {
+                        } catch (error) {
                             console.error('Error saving config:', error);
                             // Proceed anyway if user wants
                             const proceedAnyway = confirm('Failed to save config. Proceed anyway?');
                             if (proceedAnyway) {
                                 currentConfig = newConfig;
-                                switchView('analyse');
                             }
-                        });
+                        }
                     } else {
                         // User chose to proceed without saving
                         currentConfig = newConfig;
-                        switchView('analyse');
+                        // switchView('analyse');
                     }
                 } else {
                     // No changes, proceed directly
                     currentConfig = newConfig;
-                    switchView('analyse');
                 }
             }
+
+            // If a conversion table exists from prior runs, try to reload it before switching
+            if (currentTablePath && analysisComplete) {
+                try {
+                    const fileContent = await window.electronAPI.readFile(currentTablePath);
+                    if (fileContent) parseAndDisplayTable(fileContent);
+                } catch (e) {
+                    console.log('Could not reload table:', e.message);
+                }
+            }
+
+            // Move user to editor
+            switchView('editor');
         });
     } else {
-        console.error('nextToAnalyseBtn not found!');
+        console.error('nextToEditorBtn not found!');
     }
     
     // Step 2: Analyse
-    document.getElementById('runAnalyseBtn').addEventListener('click', runAnalysis);
-    document.getElementById('backToConfigBtn').addEventListener('click', () => switchView('config'));
-    document.getElementById('nextToEditorBtn').addEventListener('click', async () => {
-        // Auto-reload the table if it exists and has been loaded
-        if (currentTablePath && analysisComplete) {
-            try {
-                const fileContent = await window.electronAPI.readFile(currentTablePath);
-                if (fileContent) {
-                    parseAndDisplayTable(fileContent);
-                    console.log('✅ Table auto-reloaded on editor view');
-                }
-            } catch (error) {
-                console.log('Could not auto-reload table:', error.message);
-            }
-        }
-        switchView('editor');
-    });
+    // Listen to runAnalyseBtn already wired in initializeEventHandlers
+    // Next-to-editor navigation now handled from config page instead
     
     // Step 3: Editor
-    document.getElementById('backToAnalyseBtn').addEventListener('click', () => switchView('analyse'));
+    document.getElementById('backToConfigBtn').addEventListener('click', () => switchView('config'));
     document.getElementById('nextToExecuteBtn').addEventListener('click', () => {
         // Check if there are unsaved changes before proceeding
         if (editorData.modifiedRows.size > 0) {
@@ -196,6 +289,20 @@ function initializeEventHandlers() {
     document.getElementById('configForm').addEventListener('change', () => {
         currentConfig = collectConfigFromForm();
     });
+
+    // GitHub external link: open it in system default browser instead of navigating inside Electron
+    const gh = document.getElementById('githubLink');
+    if (gh) {
+        gh.addEventListener('click', (e) => {
+            e.preventDefault();
+            const url = gh.dataset.url || gh.href;
+            if (window.electronAPI && window.electronAPI.openExternal) {
+                window.electronAPI.openExternal(url);
+            } else {
+                window.open(url, '_blank');
+            }
+        });
+    }
 }
 
 function switchView(viewId) {
@@ -273,10 +380,18 @@ async function browseFile(inputId) {
 async function loadDefaultConfig() {
     if (window.electronAPI) {
         try {
-            const config = await window.electronAPI.loadDefaultConfig();
-            if (config) {
-                populateConfigForm(config);
-                currentConfig = config;
+            const result = await window.electronAPI.loadDefaultConfig();
+            if (result) {
+                // If result is just the config object, keep old logic
+                if (result.config) {
+                    populateConfigForm(result.config);
+                    currentConfig = result.config;
+                    window.currentConfigFilePath = result.filePath || result.configPath || null;
+                } else {
+                    populateConfigForm(result);
+                    currentConfig = result;
+                    window.currentConfigFilePath = null;
+                }
             }
         } catch (error) {
             console.error('Error loading default config:', error);
@@ -290,7 +405,42 @@ async function loadConfigFile() {
         if (result && result.config) {
             populateConfigForm(result.config);
             currentConfig = result.config;
+            // Store the config file path for later use
+            window.currentConfigFilePath = result.filePath || result.configPath || null;
             alert('✅ Configuration loaded successfully');
+
+            // Auto-load Editor and Report if files exist
+            const projectRoot = result.config?.Project?.Root && result.config?.Project?.Name
+                ? `${result.config.Project.Root}/${result.config.Project.Name}`
+                : null;
+            if (projectRoot) {
+                const logsPath = `${projectRoot}/logs`;
+                const conversionFile = result.config.BIDS?.Conversion_file || 'bids_conversion.tsv';
+                const conversionTablePath = `${logsPath}/${conversionFile}`;
+                const summaryPath = `${logsPath}/bids_results.json`;
+                const fs = window.electronAPI;
+                // Check for conversion table
+                try {
+                    const tableContent = await fs.readFile(conversionTablePath);
+                    if (tableContent) {
+                        // Load table in editor but do not automatically switch view
+                        // This avoids disrupting the user when they just wanted to load config
+                        await loadConversionTableInEditor(conversionTablePath);
+                    }
+                } catch (e) {
+                    // Table not found, do nothing
+                }
+                // Check for summary/report
+                try {
+                    const summaryContent = await fs.readFile(summaryPath);
+                    if (summaryContent) {
+                        // Only generate report, do not switch view automatically
+                        await generateReport();
+                    }
+                } catch (e) {
+                    // Summary not found, do nothing
+                }
+            }
         }
     }
 }
@@ -1318,6 +1468,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Step 4: Execute Conversion
 async function runBidsification() {
+    // Do not change the current view when starting execution – keep the user in the
+    // Execute view so they can stay on the same step while conversion runs.
     if (!validateConfig()) {
         return;
     }
@@ -1370,12 +1522,12 @@ async function runBidsification() {
 // Step 5: Generate Report
 async function generateReport() {
     const detailsDiv = document.getElementById('report-details');
-    
-    // Try to load bids_results.json
+
+    // Try to load the canonical bids_results.json report only
     const projectRoot = currentConfig?.Project?.Root && currentConfig?.Project?.Name 
         ? `${currentConfig.Project.Root}/${currentConfig.Project.Name}` 
         : null;
-    
+
     if (!projectRoot) {
         detailsDiv.innerHTML = `
             <h3 style="color: #860052; margin-bottom: 15px;">Conversion Details</h3>
@@ -1383,55 +1535,292 @@ async function generateReport() {
         `;
         return;
     }
-    
+
     const bidsResultsPath = `${projectRoot}/logs/bids_results.json`;
-    
+
+    // Load combined bids_results.json if present (it will include 'Report Table' and 'BIDS Tree')
+    let summaryObj = null;
     try {
-        // Load bids_results.json
+        // Load the canonical combined report only
+        const summaryContent = await window.electronAPI.readFile(bidsResultsPath);
+        summaryObj = JSON.parse(summaryContent);
+    } catch (e) {
+        // If not present or invalid, set summaryObj to null and fall back to console parsing later
+        summaryObj = null;
+    }
+
+    // Now try to load bids_results.json for details
+    try {
         const fileContent = await window.electronAPI.readFile(bidsResultsPath);
-        const bidsResults = JSON.parse(fileContent);
-        
+        const bidsResultsRaw = JSON.parse(fileContent);
+
+        // Accept either an array of rows or a dict with 'Report Table'
+        const rows = Array.isArray(bidsResultsRaw) ? bidsResultsRaw : (bidsResultsRaw && bidsResultsRaw['Report Table'] ? bidsResultsRaw['Report Table'] : []);
+
         // Calculate statistics from bids_results
-        const totalFiles = bidsResults.length;
-        const successfulConversions = bidsResults.filter(r => r['Conversion Status'] === 'Success').length;
-        const failedConversions = bidsResults.filter(r => r['Conversion Status'] !== 'Success').length;
-        
+        const totalFiles = rows.length;
+        // Files considered converted are those with Conversion Status === 'processed' (case-insensitive)
+        // Accept both 'processed' and legacy 'success' as completed conversions
+        const successfulConversions = rows.filter(r => {
+            const s = (r['Conversion Status'] || '').toString().toLowerCase();
+            return s === 'processed' || s === 'success';
+        }).length;
+        // Errors are entries where Conversion Status === 'error'
+        const failedConversions = rows.filter(r => (r['Conversion Status'] || '').toString().toLowerCase() === 'error').length;
+
         // Get unique subjects and sessions
-        const subjects = new Set(bidsResults.map(r => r.Participant).filter(p => p));
-        const sessions = new Set(bidsResults.map(r => r.Session).filter(s => s));
-        
+        const subjects = new Set(rows.map(r => r.Participant).filter(p => p));
+        const sessions = new Set(rows.map(r => r.Session).filter(s => s));
+
         // Update statistics
         document.getElementById('stat-files-converted').textContent = successfulConversions.toString();
         document.getElementById('stat-subjects').textContent = subjects.size.toString();
         document.getElementById('stat-sessions').textContent = sessions.size.toString();
         document.getElementById('stat-errors').textContent = failedConversions.toString();
-        
+
         // Group by task and acquisition for summary
         const taskStats = {};
         const acquisitionStats = {};
-        
-        bidsResults.forEach(entry => {
+
+        rows.forEach(entry => {
             const task = entry.Task || 'Unknown';
             const acq = entry.Acquisition || 'Unknown';
-            
+
             if (!taskStats[task]) taskStats[task] = 0;
             if (!acquisitionStats[acq]) acquisitionStats[acq] = 0;
-            
+
             taskStats[task]++;
             acquisitionStats[acq]++;
         });
-        
+
         // Calculate total file sizes
-        const totalSourceSize = bidsResults.reduce((sum, r) => sum + (r['Source Size'] || 0), 0);
-        const totalBidsSize = bidsResults.reduce((sum, r) => sum + (r['BIDS Size'] || 0), 0);
-        
+        const totalSourceSize = rows.reduce((sum, r) => sum + (r['Source Size'] || 0), 0);
+        const totalBidsSize = rows.reduce((sum, r) => sum + (r['BIDS Size'] || 0), 0);
+
         const formatBytes = (bytes) => {
             if (!bytes) return 'N/A';
             const gb = bytes / (1024 * 1024 * 1024);
             return `${gb.toFixed(2)} GB`;
         };
-        
-        // Generate detailed report
+
+        // Friendly date formatter for timestamps present in the report
+        function formatDate(val) {
+            if (!val) return '';
+            try {
+                // If value is a compact YYYYMMDD (string of 8 digits), return YYYY-MM-DD
+                if (/^\d{8}$/.test(val)) {
+                    const y = val.slice(0, 4);
+                    const m = val.slice(4, 6);
+                    const d = val.slice(6, 8);
+                    return `${y}-${m}-${d}`;
+                }
+
+                // Try Date parse (ISO or others) and format as YYYY-MM-DD HH:mm:ss
+                const t = Date.parse(val);
+                if (!isNaN(t)) {
+                    const dt = new Date(t);
+                    const pad = (n) => String(n).padStart(2, '0');
+                    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+                }
+
+                // If it's already a JS Date
+                if (val instanceof Date) {
+                    const dt = val;
+                    const pad = (n) => String(n).padStart(2, '0');
+                    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+                }
+
+                // last fallback
+                return val.toString();
+            } catch (e) {
+                return val.toString();
+            }
+        }
+
+
+        // Helper to render BIDS tree as expandable/collapsible HTML with conversion date
+        // Helper SVG icons (monochrome) for consistent cross-platform rendering
+        const CHECK_SVG = `
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="validation-svg">
+                <circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity="0.12" />
+                <path d="M7 12.5l2.5 2.5L17 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+        `;
+
+        const WARNING_SVG = `
+            <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="validation-svg">
+                <path d="M1 21h22L12 2 1 21z" fill="currentColor" fill-opacity="0.12" />
+                <path d="M12 9v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                <path d="M12 17h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+        `;
+
+        // Inject small CSS to make icons monochrome and consistent
+        if (!document.getElementById('bids-validation-icons-style')) {
+            const style = document.createElement('style');
+            style.id = 'bids-validation-icons-style';
+            style.textContent = `
+                /* Monochrome validation icons: color controlled via CSS (default: dark gray) */
+                .validation-icon { display:inline-flex; vertical-align:middle; margin-left:8px; color: #444; }
+                .validation-icon.valid { /* Keep classes for custom theming if needed */ }
+                .validation-icon.invalid { /* Keep classes for custom theming if needed */ }
+                .validation-icon.none { color: #999; }
+                .validation-svg { display:block; }
+            `;
+            document.head.appendChild(style);
+        }
+        function renderBidsTreeExpandable(node, level = 0, parentId = '') {
+            if (!node) return '';
+            // Prefix IDs to avoid starting with a digit/underscore and ensure uniqueness
+            const nodeId = 'node_' + (parentId ? parentId + '_' : '') + (node.name || 'root').replace(/[^a-zA-Z0-9]/g, '') + '_' + level;
+            const indent = '&nbsp;'.repeat(level * 2);
+            // Show date if present (try both 'conversion_date' and 'date')
+            // Support several different timestamp field names and format for display
+            let dateVal = node['conversion_date'] || node['date'] || node['timestamp'] || node['Processing Date'] || '';
+            let dateStr = dateVal ? `<span style="color:#888; font-size:11px; margin-left:8px;">${formatDate(dateVal)}</span>` : '';
+            let badge = '';
+            // Show icon-only badges for validation: green check for valid, yellow warning for invalid.
+            // Keep a title attribute for accessibility but do not include text in the badge itself.
+            if (node.validation === 'True BIDS') badge = `<span class="validation-icon valid" title="Valid" role="img" aria-label="Valid">${CHECK_SVG}</span>`;
+            else if (node.validation === 'False BIDS') badge = `<span class="validation-icon invalid" title="Invalid" role="img" aria-label="Invalid">${WARNING_SVG}</span>`;
+            else badge = `<span class="validation-icon none" title="Unknown validation" role="img" aria-label="Unknown"></span>`;
+
+            if (node.type === 'directory') {
+                const hasChildren = node.children && node.children.length > 0;
+                // By default, directories are expanded
+                return `
+                    <div style="margin-left: ${level * 16}px;">
+                        <span class="tree-toggle" data-target="${nodeId}" style="cursor: pointer; user-select: none; font-weight: bold; color: #860052; display:inline-flex; align-items:center; gap:6px;">
+                            ${hasChildren ? `<span class=\"tree-arrow\" id=\"arrow_${nodeId}\" style=\"display:inline-block;width:16px;\">▼</span>` : ''} ${indent}${node.name}/
+                        </span>
+                        ${dateStr}
+                        ${badge}
+                        <div id="${nodeId}" data-level="${level + 1}" class="tree-children" style="margin-left: 0;">
+                            ${hasChildren ? node.children.map(child => renderBidsTreeExpandable(child, level + 1, nodeId)).join('') : ''}
+                        </div>
+                    </div>
+                `;
+            } else {
+                return `
+                    <div style="margin-left: ${level * 16}px;">
+                        <span>${indent}${node.name}</span> ${dateStr} ${badge}
+                    </div>
+                `;
+            }
+        }
+
+        // Build the BIDS tree: prefer summaryObj['BIDS Tree'], but if not present
+        // we can derive the tree from the 'Report Table' rows by parsing 'BIDS File' paths
+        let bidsTreeHtml = '';
+        const rowsTable = summaryObj && summaryObj['Report Table'] ? summaryObj['Report Table'] : [];
+
+        function buildTreeFromRows(rows) {
+            const root = { name: 'BIDS', path: 'BIDS', type: 'directory', children: [] };
+
+            function findOrCreateChild(parent, name, type='directory') {
+                let child = (parent.children || []).find(c => c.name === name && c.type === type);
+                if (!child) {
+                    child = { name, type, path: (parent.path ? (parent.path + '/' + name) : name), children: [] };
+                    parent.children = parent.children || [];
+                    parent.children.push(child);
+                }
+                return child;
+            }
+
+            rows.forEach(row => {
+                const bidsFiles = Array.isArray(row['BIDS File']) ? row['BIDS File'] : (row['BIDS File'] ? [row['BIDS File']] : []);
+                const validation = row['Validated'] || row['Validation'] || null;
+                const dateVal = row['timestamp'] || row['Processing Date'] || null;
+
+                bidsFiles.forEach(bf => {
+                    if (!bf) return;
+                    // Find relative path under 'BIDS'
+                    const idx = bf.indexOf('/BIDS/');
+                    let rel = idx !== -1 ? bf.substring(idx + 6) : bf;
+                    // Normalize leading slash
+                    if (rel.startsWith('/')) rel = rel.substring(1);
+                    const parts = rel.split('/');
+
+                    // Walk the tree and create nodes
+                    let parent = root;
+                    for (let i = 0; i < parts.length; i++) {
+                        const part = parts[i];
+                        const isFile = i === parts.length - 1;
+                        if (isFile) {
+                            const node = findOrCreateChild(parent, part, 'file');
+                            node.validation = validation;
+                            node.conversion_date = node.conversion_date || dateVal;
+                            node.fullpath = bf;
+                        } else {
+                            parent = findOrCreateChild(parent, part, 'directory');
+                        }
+                    }
+                });
+            });
+
+            // Aggregate validation & latest date for directories
+            function aggregate(node) {
+                if (node.type === 'file') {
+                    return { validation: node.validation || null, dateMs: parseDateMs(node.conversion_date) };
+                }
+                let allValid = true;
+                let anyValid = false;
+                let anyInvalid = false;
+                let latest = 0;
+                (node.children || []).forEach(child => {
+                    const res = aggregate(child);
+                    if (res.validation === 'True BIDS') anyValid = true;
+                    if (res.validation === 'False BIDS') anyInvalid = true;
+                    if (res.validation !== 'True BIDS') allValid = false;
+                    if (res.dateMs && res.dateMs > latest) latest = res.dateMs;
+                });
+
+                if (allValid && anyValid) node.validation = 'True BIDS';
+                else if (anyInvalid) node.validation = 'False BIDS';
+                else node.validation = 'N/A';
+
+                if (latest) node.conversion_date = new Date(latest).toISOString();
+                return { validation: node.validation, dateMs: latest };
+            }
+
+            aggregate(root);
+            return root;
+        }
+
+        // parse date for directory aggregation
+        function parseDateMs(val) {
+            if (!val) return null;
+            // YYYYMMDD
+            if (/^\d{8}$/.test(val)) {
+                const y = Number(val.slice(0,4));
+                const m = Number(val.slice(4,6)) - 1;
+                const d = Number(val.slice(6,8));
+                return new Date(y, m, d).getTime();
+            }
+            const t = Date.parse(val);
+            return isNaN(t) ? null : t;
+        }
+
+        let treeObj = summaryObj && summaryObj['BIDS Tree'] ? summaryObj['BIDS Tree'] : null;
+        if (!treeObj && rowsTable && rowsTable.length > 0) {
+            try {
+                treeObj = buildTreeFromRows(rowsTable);
+            } catch (e) {
+                console.error('Failed to derive BIDS tree from report rows:', e);
+                treeObj = null;
+            }
+        }
+
+        if (treeObj) {
+            bidsTreeHtml = `
+                <h4 style="color: #860052; margin: 20px 0 10px;">BIDS Directory Structure & Validation</h4>
+                <div id="bids-tree-expandable" style="background: #f8f8f8; border-radius: 8px; padding: 12px 18px; max-height: 400px; overflow-y: auto;">
+                    ${renderBidsTreeExpandable(treeObj)}
+                </div>
+            `;
+        }
+
+        // Generate detailed report with BIDS tree only (tree is expandable, shows conversion date)
         detailsDiv.innerHTML = `
             <h3 style="color: #860052; margin-bottom: 15px;">Conversion Details</h3>
             <div style="color: #555; line-height: 1.8;">
@@ -1442,78 +1831,95 @@ async function generateReport() {
                 <p><strong>Total Conversions:</strong> ${totalFiles} files (${successfulConversions} successful, ${failedConversions} failed)</p>
                 <p><strong>Total Source Size:</strong> ${formatBytes(totalSourceSize)}</p>
                 <p><strong>Total BIDS Size:</strong> ${formatBytes(totalBidsSize)}</p>
-                
+
                 <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
-                
+
                 <h4 style="color: #860052; margin: 15px 0 10px;">Tasks</h4>
                 <ul style="margin: 0; padding-left: 20px;">
                     ${Object.entries(taskStats).map(([task, count]) => 
                         `<li><strong>${task}:</strong> ${count} file(s)</li>`
                     ).join('')}
                 </ul>
-                
+
                 <h4 style="color: #860052; margin: 15px 0 10px;">Acquisitions</h4>
                 <ul style="margin: 0; padding-left: 20px;">
                     ${Object.entries(acquisitionStats).map(([acq, count]) => 
                         `<li><strong>${acq}:</strong> ${count} file(s)</li>`
                     ).join('')}
                 </ul>
-                
+
                 <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
-                
-                <h4 style="color: #860052; margin: 15px 0 10px;">Recent Conversions</h4>
-                <div style="max-height: 300px; overflow-y: auto;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                        <thead style="background: #f8f8f8; position: sticky; top: 0;">
-                            <tr>
-                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #860052;">Participant</th>
-                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #860052;">Session</th>
-                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #860052;">Task</th>
-                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #860052;">Acquisition</th>
-                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #860052;">Status</th>
-                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #860052;">Date</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${bidsResults.slice(-20).reverse().map(entry => {
-                                const statusClass = entry['Conversion Status'] === 'Success' ? 'color: #98C9A3;' : 'color: #ff6b6b;';
-                                const sourceFile = Array.isArray(entry['Source File']) ? entry['Source File'][0] : entry['Source File'];
-                                const fileName = sourceFile ? sourceFile.split('/').pop() : 'N/A';
-                                
-                                return `
-                                    <tr style="border-bottom: 1px solid #f0f0f0;">
-                                        <td style="padding: 8px;">${entry.Participant || 'N/A'}</td>
-                                        <td style="padding: 8px;">${entry.Session || 'N/A'}</td>
-                                        <td style="padding: 8px;">${entry.Task || 'N/A'}</td>
-                                        <td style="padding: 8px;">${entry.Acquisition || 'N/A'}</td>
-                                        <td style="padding: 8px; ${statusClass} font-weight: bold;">${entry['Conversion Status']}</td>
-                                        <td style="padding: 8px; font-size: 12px;">${entry['Processing Date'] || 'N/A'}</td>
-                                    </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
+                ${bidsTreeHtml}
             </div>
         `;
-        
+
+        // Expand/collapse handler for the tree (delegation)
+        setTimeout(() => {
+                const container = document.getElementById('bids-tree-expandable');
+            if (container) {
+                container.addEventListener('click', function (e) {
+                    const toggleEl = e.target.closest('.tree-toggle');
+                    if (!toggleEl) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const targetId = toggleEl.getAttribute('data-target');
+                    const childrenDiv = document.getElementById(targetId);
+                    if (childrenDiv) {
+                        const isVisible = childrenDiv.style.display === '' || childrenDiv.style.display === 'block';
+                        childrenDiv.style.display = isVisible ? 'none' : 'block';
+                        const arrow = document.getElementById('arrow_' + targetId);
+                        if (arrow) arrow.textContent = isVisible ? '▶' : '▼';
+                    }
+                });
+
+                    // Ensure arrow clicks also toggle the parent
+                container.querySelectorAll('.tree-arrow').forEach(arrow => {
+                    arrow.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const parentToggle = arrow.closest('.tree-toggle');
+                        if (parentToggle) parentToggle.click();
+                    });
+                });
+                // Initialize collapsed/expanded state: show only root and 1st level by default
+                container.querySelectorAll('.tree-children').forEach(div => {
+                    const levelAttr = div.getAttribute('data-level');
+                    const levelNum = levelAttr ? parseInt(levelAttr, 10) : 0;
+                    // Collapse deeper than level 1 (so only 0=root and 1=children of root are shown)
+                    if (!isNaN(levelNum) && levelNum >= 2) {
+                        div.style.display = 'none';
+                    } else {
+                        div.style.display = 'block';
+                    }
+                });
+                container.querySelectorAll('.tree-arrow').forEach(arrow => {
+                    const targetId = arrow.id.replace(/^arrow_/, '');
+                    const childrenDiv = document.getElementById(targetId);
+                    if (childrenDiv) {
+                        arrow.textContent = (childrenDiv.style.display === 'block') ? '▼' : '▶';
+                    }
+                });
+            }
+        }, 0);
+
     } catch (error) {
+        // If bids_results.json is missing, still show the summary and fallback info
         console.error('Error loading bids_results.json:', error);
-        
+
         // Fallback to console output parsing
         const consoleText = document.getElementById('executeConsole').textContent;
-        
+
         const filesMatch = consoleText.match(/(\d+)\s+files?/i);
         const subjectsMatch = consoleText.match(/(\d+)\s+subjects?/i);
         const sessionsMatch = consoleText.match(/(\d+)\s+sessions?/i);
         const errorsMatch = consoleText.match(/(\d+)\s+errors?/i);
-        
-        document.getElementById('stat-files-converted').textContent = filesMatch ? filesMatch[1] : '0';
-        document.getElementById('stat-subjects').textContent = subjectsMatch ? subjectsMatch[1] : '1';
-        document.getElementById('stat-sessions').textContent = sessionsMatch ? sessionsMatch[1] : '1';
-        document.getElementById('stat-errors').textContent = errorsMatch ? errorsMatch[1] : '0';
-        
+
+        document.getElementById('stat-files-converted').textContent = filesMatch ? filesMatch[1] : (summaryObj?.['Processed Files'] ?? '0');
+        document.getElementById('stat-subjects').textContent = subjectsMatch ? subjectsMatch[1] : (summaryObj?.['Total Subjects'] ?? '1');
+        document.getElementById('stat-sessions').textContent = sessionsMatch ? sessionsMatch[1] : (summaryObj?.['Sessions per Subject'] ?? '1');
+        document.getElementById('stat-errors').textContent = errorsMatch ? errorsMatch[1] : (summaryObj?.['Error Files'] ?? '0');
+
         detailsDiv.innerHTML = `
+            
             <h3 style="color: #860052; margin-bottom: 15px;">Conversion Details</h3>
             <div style="color: #555; line-height: 1.8;">
                 <p style="color: #ff6b6b;">⚠️ Could not load bids_results.json: ${error.message}</p>
@@ -1526,10 +1932,56 @@ async function generateReport() {
                 <pre style="background: #f8f8f8; padding: 15px; border-radius: 6px; overflow-x: auto; max-height: 300px; overflow-y: auto;">${document.getElementById('executeConsole').textContent}</pre>
             </div>
         `;
+        // Add expand/collapse logic for the tree view (fix: use correct display logic)
+        setTimeout(() => {
+            const toggles = document.querySelectorAll('.tree-toggle');
+            toggles.forEach(toggle => {
+                toggle.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Tree toggle clicked:', this.getAttribute('data-target'));
+                    const targetId = this.getAttribute('data-target');
+                    const childrenDiv = document.getElementById(targetId);
+                    if (childrenDiv) {
+                        // Toggle display
+                        const isVisible = childrenDiv.style.display === '' || childrenDiv.style.display === 'block';
+                        childrenDiv.style.display = isVisible ? 'none' : 'block';
+                        const arrow = document.getElementById('arrow_' + targetId);
+                        if (arrow) arrow.textContent = isVisible ? '▶' : '▼';
+                        console.log('Tree toggled', targetId, 'visible:', !isVisible);
+                    }
+                });
+            });
+            // Also make arrow click forward to the toggle click (better click target)
+            document.querySelectorAll('.tree-arrow').forEach(arrow => {
+                arrow.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const parentToggle = arrow.closest('.tree-toggle') || document.querySelector(`.tree-toggle[data-target='${arrow.id.replace(/^arrow_/, '')}']`);
+                    if (parentToggle) parentToggle.click();
+                });
+            });
+                // Initialize collapsed/expanded state: show only root and 1st level by default
+                document.querySelectorAll('.tree-children').forEach(div => {
+                    const levelAttr = div.getAttribute('data-level');
+                    const levelNum = levelAttr ? parseInt(levelAttr, 10) : 0;
+                    if (!isNaN(levelNum) && levelNum >= 2) {
+                        div.style.display = 'none';
+                    } else {
+                        div.style.display = 'block';
+                    }
+                });
+                document.querySelectorAll('.tree-arrow').forEach(arrow => {
+                    const targetId = arrow.id.replace(/^arrow_/, '');
+                    const childrenDiv = document.getElementById(targetId);
+                    if (childrenDiv) {
+                        arrow.textContent = (childrenDiv.style.display === 'block') ? '▼' : '▶';
+                    }
+                });
+        }, 0);
     }
 }
 
-function exportReport() {
+async function exportReport() {
     const reportHtml = `
 <!DOCTYPE html>
 <html>
@@ -1576,19 +2028,26 @@ function exportReport() {
 </html>
     `;
     
-    // Save report
+    // Save report — show Save-as dialog restricted to HTML/HTM
     if (window.electronAPI) {
-        window.electronAPI.saveFile({
-            content: reportHtml,
-            defaultPath: 'bids_conversion_report.html',
-            filters: [{ name: 'HTML', extensions: ['html'] }]
-        }).then(() => {
-            alert('✅ Report exported successfully');
-        }).catch(err => {
-            alert('❌ Error exporting report: ' + err.message);
-        });
+        const defaultPath = 'bids_conversion_report.html';
+        try {
+            const result = await window.electronAPI.saveFileDialog(defaultPath, reportHtml, { filters: [{ name: 'HTML Files', extensions: ['html', 'htm'] }] });
+            if (result && result.success) {
+                alert('✅ Report exported successfully to: ' + result.filePath);
+            } else if (result && result.canceled) {
+                // user canceled — do nothing
+            } else {
+                throw new Error(result?.error || 'Unknown error saving file');
+            }
+        } catch (err) {
+            alert('❌ Error exporting report: ' + (err.message || err));
+        }
     }
 }
+
+// NOTE: JSON export feature removed by request. Use 'Export as HTML' which opens a Save-as dialog
+// implemented in `exportReport()` above (uses `electronAPI.saveFile`).
 
 // Utility Functions
 function appendToConsole(consoleId, text, type = 'normal') {
@@ -1634,4 +2093,5 @@ if (window.electronAPI) {
     window.electronAPI.onTriggerSaveConfig(() => {
         saveConfigFile();
     });
+        // NOTE: Export JSON button intentionally removed (Export as HTML used instead). 
 }

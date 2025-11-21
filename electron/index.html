@@ -38,11 +38,50 @@
             font-weight: 700;
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
+
+        .brand-logos {
+            display:flex;
+            gap:8px;
+            align-items:center;
+            padding: 12px 20px;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.03);
+        }
+
+        .brand-logos img {
+            height: 34px;
+            width: auto;
+            display: inline-block;
+            vertical-align: middle;
+        }
         
         .nav-items {
             flex: 1;
             padding: 10px 0;
         }
+
+        .sidebar-footer {
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .sidebar-footer a.github-link {
+            color: white;
+            opacity: 0.9;
+            text-decoration: none;
+            display:flex;
+            align-items:center;
+            gap:8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .sidebar-footer svg.github-icon { height: 20px; width: 20px; fill: white; }
         
         .nav-item {
             padding: 15px 20px;
@@ -390,6 +429,35 @@
             background: #ffb3b3;
             color: #860052;
         }
+        /* Monochrome custom checkbox for consistent cross-platform appearance (editor checkboxes) */
+        input[type="checkbox"].row-checkbox,
+        #selectAllCheckbox {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border: 1px solid #bbb;
+            border-radius: 3px;
+            display: inline-block;
+            vertical-align: middle;
+            margin: 2px 4px 0 0;
+            background: white;
+            transition: background 0.08s ease, border-color 0.08s ease;
+        }
+        input[type="checkbox"].row-checkbox:checked,
+        #selectAllCheckbox:checked {
+            background: #444;
+            border-color: #444;
+        }
+        input[type="checkbox"].row-checkbox:checked::after,
+        #selectAllCheckbox:checked::after {
+            content: '\2713'; /* check mark */
+            display: block;
+            color: white;
+            text-align: center;
+            line-height: 16px;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -397,27 +465,40 @@
         <!-- Sidebar Navigation -->
         <div class="sidebar">
             <div class="app-title">NatMEG-BIDSifier</div>
+            <div class="brand-logos">
+                <img src="./NatMEG_logo.png" alt="NatMEG logo" title="NatMEG" />
+                <img src="./CIR_logo.png" alt="CIR logo" title="CIR" />
+            </div>
             <div class="nav-items">
                 <div class="nav-item active" data-view="config" data-step="1">
                     <span class="step-number">1</span>
                     <span class="step-label">Configuration</span>
                 </div>
-                <div class="nav-item" data-view="analyse" data-step="2">
-                    <span class="step-number">2</span>
-                    <span class="step-label">Analyse Data</span>
-                </div>
-                <div class="nav-item" data-view="editor" data-step="3">
+
+                <!-- Analyse progress & console removed from sidebar (moved to Editor view) -->
+
+                <!-- Analyse progress and console were moved into the Editor area (not the sidebar) -->
+                <!-- Analyse step removed: Create Conversion Table is accessible from the Editor -->
+                <div class="nav-item" data-view="editor" data-step="2">
                     <span class="step-number">3</span>
                     <span class="step-label">Editor</span>
                 </div>
-                <div class="nav-item" data-view="execute" data-step="4">
+                <div class="nav-item" data-view="execute" data-step="3">
                     <span class="step-number">4</span>
                     <span class="step-label">Execute</span>
                 </div>
-                <div class="nav-item" data-view="report" data-step="5">
+                <div class="nav-item" data-view="report" data-step="4">
                     <span class="step-number">5</span>
                     <span class="step-label">Report</span>
                 </div>
+            </div>
+            <div class="sidebar-footer">
+                <a class="github-link" href="#" id="githubLink" data-url="https://github.com/k-CIR/NatMEG-BIDSifier">
+                    <svg class="github-icon" viewBox="0 0 16 16" version="1.1" aria-hidden="true" role="img" xmlns="http://www.w3.org/2000/svg">
+                        <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38C13.71 14.53 16 11.54 16 8c0-4.42-3.58-8-8-8z"></path>
+                    </svg>
+                    GitHub
+                </a>
             </div>
         </div>
         
@@ -498,7 +579,23 @@
                             </div>
                         </div>
                     </div>
-                    
+                    <div class="form-section">
+                        <h3>Conversion Settings</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <div class="form-group">
+                                <label>Conversion Table File</label>
+                                <input type="text" id="config_conversion_file" value="bids_conversion.tsv">
+                            </div>
+                            <div class="form-group">
+                                <label>Overwrite Existing</label>
+                                <select id="config_overwrite">
+                                    <option value="false">No</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="form-section">
                         <h3>BIDS Dataset Description</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
@@ -555,62 +652,16 @@
                             </div>
                         </div>
                     </div>
-                    
-                    <div class="form-section">
-                        <h3>Conversion Settings</h3>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                            <div class="form-group">
-                                <label>Conversion Table File</label>
-                                <input type="text" id="config_conversion_file" value="bids_conversion.tsv">
-                            </div>
-                            <div class="form-group">
-                                <label>Overwrite Existing</label>
-                                <select id="config_overwrite">
-                                    <option value="false">No</option>
-                                    <option value="true">Yes</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: flex-end;">
                     <button class="btn btn-secondary" id="saveConfigBtn">💾 Save Config</button>
-                    <button class="btn btn-primary" id="nextToAnalyseBtn">Next: Analyse →</button>
+                    <button class="btn btn-primary" id="nextToEditorBtn">Next: Editor →</button>
                 </div>
             </div>
             
-            <!-- Step 2: Analyse Data -->
-            <div class="content-view" id="analyse">
-                <h1>Analyse Data Structure</h1>
-                <p style="color: #666; margin-bottom: 30px;">Generate conversion table without executing conversion</p>
-                
-                <div style="background: #f8f8f8; padding: 20px; border-radius: 8px; border-left: 4px solid #98C9A3; margin-bottom: 30px;">
-                    <strong style="color: #000;">What happens in this step:</strong>
-                    <ul style="margin: 10px 0 0 0; color: #555;">
-                        <li>Scans raw data directory structure</li>
-                        <li>Generates bids_conversion.tsv with file mapping</li>
-                        <li>No files are converted or modified</li>
-                        <li>Results can be edited in next step</li>
-                    </ul>
-                </div>
-
-                <div style="text-align: center; margin: 40px 0;">
-                    <button class="btn btn-primary" id="runAnalyseBtn" style="font-size: 16px; padding: 15px 40px;">Analyse Data Structure</button>
-                </div>
-
-                <div class="progress-container" id="analyseProgressContainer" style="display: none;">
-                    <div class="progress-bar" id="analyseProgressBar"></div>
-                </div>
-                <div id="analyseProgressText" style="text-align: center; margin: 10px 0; color: #666; display: none;">Ready to analyse</div>
-
-                <div class="console-output" id="analyseConsole" style="display: none;"></div>
-
-                <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: space-between;">
-                    <button class="btn btn-secondary" id="backToConfigBtn">← Back</button>
-                    <button class="btn btn-primary" id="nextToEditorBtn" disabled>Next: Editor →</button>
-                </div>
-            </div>
+            <!-- Step 2: Analyse Data (moved into Editor) -->
+                <!-- Analyse step removed — created from Editor view -->
             
             <!-- Step 3: Editor -->
             <div class="content-view" id="editor">
@@ -641,6 +692,9 @@
 
                 <!-- Controls -->
                 <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
+                    <button class="btn btn-primary" id="runAnalyseBtn" style="padding: 8px 16px; margin-right: 10px;">
+                        🧭 Create conversion Table
+                    </button>
                     <button class="btn btn-secondary" id="loadTableBtn" style="padding: 8px 16px;">
                         📂 Load Table
                     </button>
@@ -727,9 +781,20 @@
                 </div>
 
                 <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: space-between;">
-                    <button class="btn btn-secondary" id="backToAnalyseBtn">← Back</button>
+                    <button class="btn btn-secondary" id="backToConfigBtn">← Back</button>
                     <button class="btn btn-primary" id="nextToExecuteBtn">Next: Execute →</button>
                 </div>
+
+                <!-- Analyse progress + console appear here (moved from the sidebar) -->
+                <div class="progress-container" id="analyseProgressContainer" style="display: none; margin-top: 20px;">
+                    <div class="progress-bar" id="analyseProgressBar"></div>
+                </div>
+                <div id="analyseProgressText" style="text-align: center; margin: 8px 0; color: #666; display: none;">Ready to analyse</div>
+                <div class="console-output" id="analyseConsole" style="display: none; margin-top: 10px; max-height: 240px; overflow-y: auto;"></div>
+
+                <!-- Execute console moved into the Editor view so it is visible in the main window below
+                     the conversion table. The app continues to reference this element by id 'executeConsole'. -->
+                <!-- executeConsole moved to the Editor (main content view under the table) -->
             </div>
             
             <!-- Step 4: Execute -->
@@ -792,7 +857,9 @@
                     <button class="btn btn-secondary" id="backToExecuteBtn">← Back to Execute</button>
                     <div style="display: flex; gap: 10px;">
                         <button class="btn btn-secondary" id="startOverBtn">← Start Over</button>
-                        <button class="btn btn-primary" id="exportReportBtn">Export Report</button>
+                        <button class="btn btn-primary" id="createReportBtn">Create Report</button>
+                        <button class="btn btn-primary" id="exportReportBtn">Export HTML</button>
+                        <!-- JSON export removed: Export only available as HTML Save-as dialog -->
                     </div>
                 </div>
             </div>

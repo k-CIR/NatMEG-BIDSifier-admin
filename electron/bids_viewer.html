@@ -496,6 +496,38 @@
         .duplicate-cell {
             background: #ffcccc !important;
         }
+
+        /* Monochrome custom checkbox for consistent cross-platform appearance */
+        input[type="checkbox"].bulk-row-checkbox,
+        input[type="checkbox"].bulk-select-all,
+        input[type="checkbox"].row-checkbox,
+        #selectAllCheckbox {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border: 1px solid #bbb;
+            border-radius: 3px;
+            display: inline-block;
+            vertical-align: middle;
+            margin: 2px 4px 0 0;
+            background: white;
+            transition: background 0.08s ease, border-color 0.08s ease;
+        }
+        input[type="checkbox"].bulk-row-checkbox:checked,
+        input[type="checkbox"].bulk-select-all:checked {
+            background: #444;
+            border-color: #444;
+        }
+        input[type="checkbox"].bulk-row-checkbox:checked::after,
+        input[type="checkbox"].bulk-select-all:checked::after {
+            content: '\2713'; /* check mark */
+            display: block;
+            color: white;
+            text-align: center;
+            line-height: 16px;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -860,9 +892,11 @@
                                 displayValue = `<span class="file-path">${value}</span>`;
                             }
                             // Highlight duplicate bids_name
-                            if (col === 'bids_name' && isDuplicate) {
+                                if (col === 'bids_name' && isDuplicate) {
                                 tdClass += ' duplicate-cell';
-                                displayValue = `<span style='color:#c0392b;font-weight:bold;' title='Duplicate bids_name'>${value} ⚠️</span>`;
+                                // Monochrome warning SVG for duplicate marker
+                                const DUP_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle; margin-left:6px;"><path d="M1 21h22L12 2 1 21z" fill="currentColor" fill-opacity="0.12"/><path d="M12 9v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>`;
+                                displayValue = `<span style='color:#444;font-weight:bold;' title='Duplicate bids_name'>${value}${DUP_SVG}</span>`;
                             }
                             return `<td class="${tdClass} col-${col}">${displayValue}</td>`;
                         }).join('');

@@ -3,6 +3,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Expose protected methods that allow the renderer process to use
 // ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
+    // Save config to a temp file and return the path
+    saveTempConfig: (config) => ipcRenderer.invoke('save-temp-config', config),
+
+    // Run bidsify.py with arbitrary args (e.g., ['--report', '--config', path])
+    runBidsifyWithArgs: (args) => ipcRenderer.invoke('run-bidsify-with-args', args),
   // Config management
   loadDefaultConfig: () => ipcRenderer.invoke('load-default-config'),
   loadConfig: () => ipcRenderer.invoke('load-config'),
@@ -23,7 +28,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (path) => ipcRenderer.invoke('read-file', path),
   openFile: () => ipcRenderer.invoke('open-file-dialog'),
   saveFile: (filePath, content) => ipcRenderer.invoke('save-file', { filePath, content }),
-  saveFileDialog: (defaultPath, content) => ipcRenderer.invoke('save-file-dialog', { defaultPath, content }),
+  // Accept optional options object to pass custom filters for the dialog
+  saveFileDialog: (defaultPath, content, options = {}) => ipcRenderer.invoke('save-file-dialog', { defaultPath, content, options }),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   selectFile: () => ipcRenderer.invoke('select-file'),
   
@@ -32,4 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTriggerSave: (callback) => ipcRenderer.on('trigger-save', callback),
   onTriggerLoadConfig: (callback) => ipcRenderer.on('trigger-load-config', callback),
   onTriggerSaveConfig: (callback) => ipcRenderer.on('trigger-save-config', callback)
+  ,
+  // Open external links using the system default browser
+  openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });

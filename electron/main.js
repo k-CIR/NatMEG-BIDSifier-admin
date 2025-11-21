@@ -1,9 +1,63 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
+
+const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const { spawn } = require('child_process');
 const yaml = require('js-yaml');
+
+// Save config to a temp file and return the path
+ipcMain.handle('save-temp-config', async (event, config) => {
+  try {
+    const tempConfigPath = path.join(app.getPath('temp'), 'natmeg_config_temp.yml');
+    const yamlContent = yaml.dump(config, { lineWidth: -1 });
+    await fs.writeFile(tempConfigPath, yamlContent, 'utf-8');
+    return tempConfigPath;
+  } catch (error) {
+    throw error;
+  }
+});
+
+// Run bidsify.py with arbitrary arguments (e.g., ['--report', '--config', path])
+ipcMain.handle('run-bidsify-with-args', async (event, args) => {
+  return new Promise((resolve) => {
+    try {
+      // Find Python executable and bidsify.py
+      const pythonExe = getPythonExecutable();
+      const isDev = !app.isPackaged;
+      const bidsifyPath = isDev 
+        ? path.join(__dirname, '..', 'bidsify.py')
+        : path.join(process.resourcesPath || __dirname, 'bidsify.py');
+
+      // Insert the script path at the start
+      const fullArgs = [bidsifyPath, ...args];
+
+      // Spawn Python process
+      const proc = spawn(pythonExe, fullArgs);
+      let output = '';
+      let errorOutput = '';
+
+      proc.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+      proc.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true, output });
+        } else {
+          resolve({ success: false, error: errorOutput || `Process exited with code ${code}`, output });
+        }
+      });
+      proc.on('error', (error) => {
+        resolve({ success: false, error: error.message });
+      });
+    } catch (error) {
+      resolve({ success: false, error: error.message });
+    }
+  });
+});
 
 let mainWindow;
 let pythonProcess = null;
@@ -157,14 +211,29 @@ ipcMain.handle('save-file', async (event, { filePath, content }) => {
   }
 });
 
+// Open external links in the system default browser
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // Handle save-as dialog
-ipcMain.handle('save-file-dialog', async (event, { defaultPath, content }) => {
+ipcMain.handle('save-file-dialog', async (event, { defaultPath, content, options }) => {
+  // Allow the caller to provide options.{filters} to customize the save dialog (e.g., HTML only)
+  const filters = (options && options.filters) ? options.filters : [
+    { name: 'JSON Files', extensions: ['json'] },
+    { name: 'HTML Files', extensions: ['html', 'htm'] },
+    { name: 'TSV Files', extensions: ['tsv'] },
+    { name: 'All Files', extensions: ['*'] }
+  ];
+
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: defaultPath,
-    filters: [
-      { name: 'TSV Files', extensions: ['tsv'] },
-      { name: 'All Files', extensions: ['*'] }
-    ]
+    filters: filters
   });
 
   if (result.canceled) {
@@ -320,7 +389,7 @@ ipcMain.handle('run-bidsify', async (event, config, onlyTable = false) => {
         // Build command arguments
         const args = [bidsifyPath, '--config', tempConfigPath];
         if (onlyTable) {
-          args.splice(1, 0, '--only-table'); // Insert --only-table after bidsifyPath
+          args.splice(1, 0, '--analyse'); // Insert --analyse after bidsifyPath
         }
         
         // Spawn Python process
@@ -361,8 +430,24 @@ ipcMain.handle('run-bidsify', async (event, config, onlyTable = false) => {
           
           if (code === 0) {
             // Determine the conversion table path
+            const projectRoot = config?.Project?.Root && config?.Project?.Name
+                ? `${config.Project.Root}/${config.Project.Name}`
+                : null;
+            const logsPath = projectRoot ? path.join(projectRoot, 'logs') : null;
             const conversionFile = config.BIDS?.Conversion_file || 'bids_conversion.tsv';
-            const conversionTablePath = path.join(config.Project.BIDS, 'conversion_logs', conversionFile);
+            let conversionTablePath = logsPath ? path.join(logsPath, conversionFile) : null;
+            // If primary path doesn't exist, fallback to historic location under BIDS/conversion_logs
+            try {
+              if (!conversionTablePath || !fsSync.existsSync(conversionTablePath)) {
+                const bidsConversionPath = config?.Project?.BIDS ? path.join(config.Project.BIDS, 'conversion_logs', conversionFile) : null;
+                if (bidsConversionPath && fsSync.existsSync(bidsConversionPath)) {
+                  conversionTablePath = bidsConversionPath;
+                }
+              }
+            } catch (e) {
+              // If fsSync throws, ignore and keep conversionTablePath as-is
+            }
+            
             
             resolve({ 
               success: true, 
