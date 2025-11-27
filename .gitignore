@@ -1,5 +1,14 @@
 node_modules/
 resources/
 dist/
+tests/
+logs/
+
 *.log
 .DS_Store
+
+# Electron build artifacts and bundled runtime — kept in the electron branch, not main
+electron/dist/
+electron/node_modules/
+electron/resources/python_env/
+electron/package-lock.json
