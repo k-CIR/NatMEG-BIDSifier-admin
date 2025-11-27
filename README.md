@@ -59,6 +59,8 @@ cd electron
 npm start
 ```
 
+Note: to reduce repository size, large Electron build artifacts (packaged distributions, node_modules and bundled Python virtualenv) have been removed from this branch. The Electron source and build scripts remain in `electron/`. If you need the full packaged app, see the `feature/electron-app` branch or regenerate artifacts locally using the packaging instructions.
+
 ## Configuration
 
 Copy `default_config.yml` and customize it for your dataset:
