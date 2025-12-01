@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
 # Launch a remote natmeg server and forward it back to the local machine in a single command
-# Usage: ./scripts/cir-bidsify.sh [user@host] [remote_repo] [--local-port 8080] [--remote-port 8080] [--autossh]
+# Usage: ./scripts/cir-bidsify.sh [user@host] [remote_repo] [--local-port 8080] [--remote-port 8080] [--autossh] [--auto-port]
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PIDFILE="$REPO_ROOT/.tunnel.pid"
+PORTFILE="$REPO_ROOT/.tunnel.port"
 
 LOCAL_PORT=8080
-REMOTE_PORT=8080
+REMOTE_PORT=18080
 AUTOSSH=0
+AUTO_PORT=0
 
 usage(){
   cat <<EOF
-Usage: $0 [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh]
+Usage: $0 [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh] [--auto-port]
 
 Simple helper that:
   - runs ./scripts/serverctl.sh start on the remote host
   - waits for the remote /api/ping to respond
   - sets up an SSH tunnel that forwards remote:LOCAL_PORT -> local:LOCAL_PORT
   - writes the tunnel PID to .tunnel.pid in the repo root
+  - when --auto-port is used, picks a free remote port (range 18080-18150) and records it in .tunnel.port
 
 If password-less SSH keys are not available you will be prompted for a password
 and the helper will try to use sshpass automatically (if installed) to avoid
@@ -39,14 +42,17 @@ fi
 
 # parse args
 POSITIONAL=()
+REMOTE_PORT_SET=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local-port)
       LOCAL_PORT="$2"; shift 2;;
     --remote-port)
-      REMOTE_PORT="$2"; shift 2;;
+      REMOTE_PORT="$2"; REMOTE_PORT_SET=1; AUTO_PORT=0; shift 2;;
     --autossh)
       AUTOSSH=1; shift;;
+    --auto-port)
+      AUTO_PORT=1; shift;;
     -*|--*)
       echo "Unknown flag: $1"; usage;;
     *)
@@ -54,6 +60,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 set -- "${POSITIONAL[@]:-}"
+
+# Default to auto-port if remote port was not explicitly set
+if [[ $REMOTE_PORT_SET -eq 0 ]]; then
+  AUTO_PORT=1
+fi
 
 SSH_TARGET=${1:-}
 REMOTE_REPO=${2:-$REPO_ROOT}
@@ -64,6 +75,13 @@ fi
 
 if [[ -z "$REMOTE_REPO" ]]; then
   REMOTE_REPO="$REPO_ROOT"
+fi
+
+# If a previous run recorded a remote port and user didn't override, reuse it for status/stop
+if [[ "$cmd" != "start" && $REMOTE_PORT_SET -eq 0 && -f "$PORTFILE" ]]; then
+  if grep -Eq '^[0-9]+$' "$PORTFILE"; then
+    REMOTE_PORT="$(cat "$PORTFILE")"
+  fi
 fi
 
 echo "Command: $cmd"
@@ -97,9 +115,23 @@ run_ssh_cmd() {
 }
 
 if [[ "$cmd" == "start" ]]; then
+  # Auto-pick a free remote port if requested
+  if [[ $AUTO_PORT -eq 1 ]]; then
+    echo "Auto-selecting a free remote port (18080-18150)..."
+    CANDIDATE="$(run_ssh_cmd "sh -lc 'if command -v ss >/dev/null 2>&1; then for p in \$(seq 18080 18150); do ss -ltn 2>/dev/null | grep -q \":\$p \" || { echo \$p; exit 0; }; done; elif command -v lsof >/dev/null 2>&1; then for p in \$(seq 18080 18150); do lsof -nP -iTCP:\$p -sTCP:LISTEN >/dev/null 2>&1 || { echo \$p; exit 0; }; done; elif command -v netstat >/dev/null 2>&1; then for p in \$(seq 18080 18150); do netstat -an 2>/dev/null | grep -q LISTEN | grep -q \":\$p \" || { echo \$p; exit 0; }; done; else echo 18080; fi'")"
+    if [[ -n "$CANDIDATE" && "$CANDIDATE" =~ ^[0-9]+$ ]]; then
+      REMOTE_PORT="$CANDIDATE"
+      echo "Selected remote port: $REMOTE_PORT"
+      echo "$REMOTE_PORT" > "$PORTFILE" || true
+    else
+      echo "Failed to auto-select a remote port; falling back to $REMOTE_PORT"
+    fi
+  fi
+
   # ensure remote server is started
   echo "Starting remote server (via serverctl.sh start)..."
-  run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh start" || {
+  # pass --port to remote serverctl so multiple users can run concurrently
+  run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh start --port ${REMOTE_PORT}" || {
     echo "Remote server start failed (check credentials or remote logs)"; exit 1
   }
 
@@ -117,15 +149,23 @@ if [[ "$cmd" == "start" ]]; then
   done
   echo " OK"
 
-  # check local port availability
-  if ss -ltn | grep -q ":${LOCAL_PORT} "; then
-    echo "Local port ${LOCAL_PORT} appears to be in use. Pick a free port or stop the process currently listening on ${LOCAL_PORT}."
-    read -rp "Use alternate local port (e.g. 18080) or press Ctrl-C to abort: " NEWPORT
-    if [[ -n "$NEWPORT" ]]; then
-      LOCAL_PORT="$NEWPORT"
+  # check local port availability; if busy and --auto-port, auto-pick a free local port
+  if ss -ltn 2>/dev/null | grep -q ":${LOCAL_PORT} "; then
+    if [[ $AUTO_PORT -eq 1 ]]; then
+      echo "Local port ${LOCAL_PORT} is in use; auto-selecting..."
+      for p in $(seq "$LOCAL_PORT" 8100); do
+        if ! ss -ltn 2>/dev/null | grep -q ":$p "; then LOCAL_PORT="$p"; break; fi
+      done
       echo "Using local port $LOCAL_PORT"
     else
-      echo "Aborting."; exit 3
+      echo "Local port ${LOCAL_PORT} appears to be in use. Pick a free port or stop the process currently listening on ${LOCAL_PORT}."
+      read -rp "Use alternate local port (e.g. 18080) or press Ctrl-C to abort: " NEWPORT
+      if [[ -n "$NEWPORT" ]]; then
+        LOCAL_PORT="$NEWPORT"
+        echo "Using local port $LOCAL_PORT"
+      else
+        echo "Aborting."; exit 3
+      fi
     fi
   fi
 
@@ -171,7 +211,7 @@ if [[ "$cmd" == "status" ]]; then
   fi
 
   echo "Remote server status (serverctl.sh status):"
-  run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh status" || echo "Failed to query remote server status"
+  run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh status --port ${REMOTE_PORT}" || echo "Failed to query remote server status"
   exit 0
 fi
 
@@ -194,7 +234,7 @@ if [[ "$cmd" == "stop" ]]; then
 
   read -rp "Stop remote server as well? [y/N]: " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
-    run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh stop" || echo "Remote server stop failed"
+    run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh stop --port ${REMOTE_PORT}" || echo "Remote server stop failed"
   fi
   exit 0
 fi

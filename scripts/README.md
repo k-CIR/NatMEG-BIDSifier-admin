@@ -17,7 +17,13 @@ Notes:
 - The script prefers the Python interpreter in `.venv/bin/python` if present.
 - Server logs are written to `~/natmeg-server.log` by default.
 - The script refuses to start if port 8080 is already bound (helps avoid collisions).
+- You can override host/port per-user via environment or flags:
+  - Example: `PORT=18080 ./scripts/serverctl.sh start`
+  - Or: `./scripts/serverctl.sh start --port 18080 --host 127.0.0.1`
 
+
+# Start remote server on a custom port per-user, and tunnel to local 8080
+./scripts/cir-bidsify.sh start user@server /path/to/NatMEG-BIDSifier --remote-port 18080 --local-port 8080
 cir-bidsify.sh
 ---------------
 

@@ -1,19 +1,37 @@
 #!/usr/bin/env bash
 # Lightweight server control script for NatMEG-BIDSifier
-# Usage: ./serverctl.sh start|stop|status|restart
+# Usage: ./serverctl.sh start|stop|status|restart [--port N] [--host HOST]
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PIDFILE="$REPO_ROOT/.server.pid"
-LOGFILE="$HOME/natmeg-server.log"
+# Defaults (can be overridden via flags or environment)
+HOST="${HOST:-127.0.0.1}"
+PORT="${PORT:-8080}"
+PIDFILE="$REPO_ROOT/.server.${PORT}.pid"
+LOGFILE="$HOME/natmeg-server-${PORT}.log"
 # Prefer the repo venv python, but fall back to system python
 PY="$REPO_ROOT/.venv/bin/python"
 if [ ! -x "$PY" ]; then
   PY="$(command -v python 2>/dev/null || true)"
 fi
 
-PORT=8080
+# Parse optional flags (allow anywhere after subcommand)
+CMD="${1:-}"
+case "$CMD" in
+  start|stop|status|restart) shift || true ;;
+  *) CMD="" ;;
+esac
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port) PORT="$2"; PIDFILE="$REPO_ROOT/.server.${PORT}.pid"; LOGFILE="$HOME/natmeg-server-${PORT}.log"; shift 2;;
+    --host) HOST="$2"; shift 2;;
+    *) break;;
+  esac
+done
+
+# re-export so child processes (uvicorn) see overrides if needed
+export HOST PORT
 
 is_port_in_use(){
   # returns 0 if port bound, non-zero otherwise
@@ -45,8 +63,8 @@ start(){
     echo "No python runtime found; cannot start server"; return 2
   fi
 
-  echo "Starting NatMEG server using $PY (port $PORT)";
-  nohup "$PY" -m uvicorn server.app:app --host 127.0.0.1 --port $PORT > "$LOGFILE" 2>&1 &
+  echo "Starting NatMEG server using $PY (host $HOST, port $PORT)";
+  nohup "$PY" -m uvicorn server.app:app --host "$HOST" --port "$PORT" > "$LOGFILE" 2>&1 &
   NEWPID=$!
   echo "$NEWPID" > "$PIDFILE"
   echo "server started (pid=$NEWPID), logs -> $LOGFILE"
@@ -87,12 +105,12 @@ status(){
   echo "NatMEG server not running"; return 3
 }
 
-case "${1:-}" in
+case "$CMD" in
   start) start ;; 
   stop) stop ;; 
   restart) stop; sleep 0.4; start ;; 
   status) status ;; 
   *)
-    echo "Usage: $0 {start|stop|status|restart}"; exit 2
+    echo "Usage: $0 {start|stop|status|restart} [--port N] [--host HOST]"; exit 2
     ;;
 esac
