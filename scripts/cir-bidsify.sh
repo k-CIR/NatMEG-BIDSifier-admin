@@ -149,12 +149,33 @@ if [[ "$cmd" == "start" ]]; then
   done
   echo " OK"
 
+  # Helper: check if a local port is in use (cross-platform: Linux, macOS, Windows/Git Bash)
+  is_local_port_in_use() {
+    local port="$1"
+    # Try lsof first (macOS, Linux)
+    if command -v lsof >/dev/null 2>&1; then
+      lsof -nP -iTCP:${port} -sTCP:LISTEN >/dev/null 2>&1 && return 0
+    fi
+    # Try ss (Linux)
+    if command -v ss >/dev/null 2>&1; then
+      ss -ltn 2>/dev/null | grep -q ":${port} " && return 0
+    fi
+    # Try netstat (Windows, fallback for Linux/macOS)
+    if command -v netstat >/dev/null 2>&1; then
+      netstat -an 2>/dev/null | grep -i "LISTEN" | grep -q ":${port} " && return 0
+    fi
+    return 1
+  }
+
   # check local port availability; if busy and --auto-port, auto-pick a free local port
-  if ss -ltn 2>/dev/null | grep -q ":${LOCAL_PORT} "; then
+  if is_local_port_in_use "$LOCAL_PORT"; then
     if [[ $AUTO_PORT -eq 1 ]]; then
       echo "Local port ${LOCAL_PORT} is in use; auto-selecting..."
-      for p in $(seq "$LOCAL_PORT" 8100); do
-        if ! ss -ltn 2>/dev/null | grep -q ":$p "; then LOCAL_PORT="$p"; break; fi
+      for p in $(seq "$LOCAL_PORT" 18200); do
+        if ! is_local_port_in_use "$p"; then
+          LOCAL_PORT="$p"
+          break
+        fi
       done
       echo "Using local port $LOCAL_PORT"
     else
