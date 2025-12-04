@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launch a remote natmeg server and forward it back to the local machine in a single command
-# Usage: ./scripts/cir-bidsify.sh [user@host] [remote_repo] [--local-port 8080] [--remote-port 8080] [--autossh] [--auto-port]
+# Usage: ./scripts/localctl.sh [start|stop|status|list|cleanup] [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh]
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ AUTO_PORT=0
 
 usage(){
   cat <<EOF
-Usage: $0 [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh] [--auto-port]
+Usage: $0 [start|stop|status|list|cleanup] [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh]
 
 Commands:
   start   - Start remote server and create tunnel (default)
@@ -25,12 +25,17 @@ Commands:
   list    - List all your running servers on the remote host
   cleanup - Stop a specific server by port number (use when pidfile is missing)
 
+Flags:
+  --local-port N    - Port on your laptop to listen on (defaults to 8080, auto-picks if busy)
+  --remote-port N   - Remote server loopback port (disables auto-port, uses specified port)
+  --autossh         - Use autossh for auto-reconnect
+
 Simple helper that:
   - runs ./scripts/serverctl.sh start on the remote host
   - waits for the remote /api/ping to respond
-  - sets up an SSH tunnel that forwards remote:LOCAL_PORT -> local:LOCAL_PORT
+  - sets up an SSH tunnel that forwards remote:REMOTE_PORT -> local:LOCAL_PORT
   - writes the tunnel PID to .tunnel.pid in the repo root
-  - when --auto-port is used (default), picks a free remote port (range 18080-18150) and records it in .tunnel.port
+  - by default, auto-selects a free remote port (range 18080-18150) and records it in .tunnel.port
 
 If password-less SSH keys are not available you will be prompted for a password
 and the helper will try to use sshpass automatically (if installed) to avoid
@@ -41,14 +46,14 @@ EOF
 
 if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then usage; fi
 
-# Subcommand? accept start|stop|status|list|cleanup as the first argument (defaults to start)
+# Parse command first (matches serverctl.sh pattern)
 cmd="start"
 if [[ ${1:-} =~ ^(start|stop|status|list|cleanup)$ ]]; then
   cmd="$1"
   shift || true
 fi
 
-# parse args
+# parse args and flags
 POSITIONAL=()
 REMOTE_PORT_SET=0
 while [[ $# -gt 0 ]]; do
@@ -59,8 +64,6 @@ while [[ $# -gt 0 ]]; do
       REMOTE_PORT="$2"; REMOTE_PORT_SET=1; AUTO_PORT=0; shift 2;;
     --autossh)
       AUTOSSH=1; shift;;
-    --auto-port)
-      AUTO_PORT=1; shift;;
     -*|--*)
       echo "Unknown flag: $1"; usage;;
     *)
@@ -245,7 +248,22 @@ if [[ "$cmd" == "start" ]]; then
   tunnel_pid=$(pgrep -f "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" | head -1)
   if [[ -n "$tunnel_pid" ]]; then
     echo "$tunnel_pid" > "$PIDFILE"
-    echo "Tunnel established (pid=$tunnel_pid). Open http://localhost:${LOCAL_PORT} in your browser. PID file: ${PIDFILE}"
+    echo "Tunnel established (pid=$tunnel_pid). Opening http://localhost:${LOCAL_PORT} in your browser..."
+    
+    # Auto-open browser (cross-platform: macOS, Linux, Windows/Git Bash)
+    if command -v open >/dev/null 2>&1; then
+      # macOS
+      open "http://localhost:${LOCAL_PORT}"
+    elif command -v xdg-open >/dev/null 2>&1; then
+      # Linux
+      xdg-open "http://localhost:${LOCAL_PORT}" >/dev/null 2>&1
+    elif command -v start >/dev/null 2>&1; then
+      # Windows/Git Bash
+      start "http://localhost:${LOCAL_PORT}"
+    else
+      echo "Could not auto-open browser. Please open http://localhost:${LOCAL_PORT} manually."
+    fi
+    
     exit 0
   else
     echo "Tunnel started but couldn't find PID. It may still be running."

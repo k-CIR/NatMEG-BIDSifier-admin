@@ -2,7 +2,7 @@
 
 ## Overview
 
-A toolkit for converting MEG/EEG data to BIDS (Brain Imaging Data Structure) format, developed at the NatMEG facility at Karolinska Institutet. The project supports a CLI and a web UI with remote connection, making it possible to edit your BIDS conversion and run it from a browser. It supports automated batch processing and includes features for data validation and quality checking.
+This is a toolkit for converting MEG/EEG data to BIDS (Brain Imaging Data Structure) format, developed at the NatMEG facility at Karolinska Institutet. The project supports a CLI and a web UI with remote connection, making it possible to edit your BIDS conversion and run it from a browser. It supports automated batch processing and includes features for data validation and quality checking.
 
 ## Features
 
@@ -12,7 +12,7 @@ A toolkit for converting MEG/EEG data to BIDS (Brain Imaging Data Structure) for
 - Web-based user interface for configuration and monitoring
 - Remote job submission and real-time log streaming
 
-## Installation (on server or local)
+## Installation (on server)
 
 ### Prerequisites
 
@@ -44,95 +44,180 @@ pip install -r requirements.txt
 ```bash
 python bidsify.py --config config.yml [--analyse][--run][--report]
 ```
+
 ### Web application (FastAPI)
 
-This repository also have a small web application (FastAPI) that allows user-friendly local configuration and edits to allow remote BIDS batch processing on a server.
+This repository includes a FastAPI web application that provides a user-friendly interface for configuring and running BIDS conversions locally or remotely.
 
-### Quick remote access: one-liner alias ("cir-bidsify")
-For a convenient, interactive helper we include `scripts/cir-bidsify.sh` in the repo. It implements a safe start/stop/status workflow and avoids the typical race conditions when starting the remote server and opening a background tunnel.
+**Typical workflow (from your laptop):**
 
-#### Prerequisites (local)
-
-- scripts/cir-bidsify.sh
-- remote machine with SSH access and full NatMEG-BIDSifier installed
-
-### Start web-based BIDSifier on remote server with port forwarding
-```shell
-./scripts/cir-bidsify.sh user@server /server/path/to/NatMEG-BIDSifier
+1. Run localctl.sh with your server details:
+```bash
+./scripts/localctl.sh start <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
 ```
+2. Script automatically:
+   - Starts the remote server with an available port
+   - Checks server health via `/api/ping`
+   - Creates an SSH tunnel to your laptop
+   - Opens browser to `http://localhost:8080` (or auto-selected local port)
+3. Edit configuration and run BIDS conversion jobs via the web UI
 
-Usage examples
+
+#### Architecture highlights
+- **FastAPI server** (`server/app.py`) runs `bidsify.py` for you and exposes REST + WebSocket endpoints
+- **Static frontend** (`web/`) implements a browser UI that speaks to the server via REST + WebSocket for real-time job logs
+- **Real-time logs** via WebSockets at `ws://<host>/ws/jobs/{job_id}/logs` for streaming stdout/stderr
+- Web UI can submit jobs (analyse, run, report), stream logs, and fetch artifacts (e.g. `bids_results.json` or TSV tables)
+
+#### Helper scripts for server management
+
+Two control scripts are provided in `scripts/`:
+
+##### `serverctl.sh` – Local server lifecycle management
+
+**Features:**
+- Prefers Python from `.venv/bin/python` if present
+- Writes logs to `~/natmeg-server.log`
+- Per-port isolation via `.server.<port>.pid` files
+- Refuses to start if port is already bound (helps avoid collisions)
+- Auto-opens browser on localhost (macOS/Linux/Windows)
+- Customizable via flags: `./scripts/serverctl.sh start --port 18080 --host 127.0.0.1`
+
+**Usage:**
+
+If already SSH'd into the server, you can use this script to manage the server lifecycle.
 
 ```bash
-# interactive prompt for target and repo
-./scripts/cir-bidsify.sh
+./scripts/serverctl.sh {start|stop|status|restart} [--port N] [--host HOST]
 
-# provide target and repo path
-./scripts/cir-bidsify.sh <user>@<server> /server/path/to/script
+Commands:
+  start   - Start uvicorn server in background (auto-opens browser on localhost)
+  stop    - Stop server
+  status  - Check if server is running
+  restart - Restart server
 
-# start with autossh (auto-reconnect)
-./scripts/cir-bidsify.sh <user>@<server> /server/path/to/script --autossh
+Flags:
+  --port N    - Port to listen on (default: 8080, via $PORT env var)
+  --host HOST - Host to bind to (default: 127.0.0.1, via $HOST env var)
 
-# stop the tunnel and optionally the remote server
-./scripts/cir-bidsify.sh stop <user>@<server> /server/path/to/script
+Examples:
+  ./scripts/serverctl.sh start                      # start on localhost:8080
+  ./scripts/serverctl.sh start --port 18080         # start on localhost:18080
+  PORT=9090 ./scripts/serverctl.sh start            # use env var for port
+  ./scripts/serverctl.sh status                     # check status
+  ./scripts/serverctl.sh stop                       # stop the server
 
-# check status
-./scripts/cir-bidsify.sh status <user>@<server> /server/path/to/script
+Notes:
+  - Uses .venv/bin/python if available, falls back to system python
+  - Logs written to ~/natmeg-server-{PORT}.log
+  - Writes pidfile to .server.{PORT}.pid in repo root
+  - Browser auto-opens when binding to localhost (macOS/Linux/Windows)
+  - Refuses to start if port is already in use
+
 ```
 
-#### Setting up an alias
-
-Recommended alias (safe): use the script or the already documented wait-for-ping one-liner. Example alias that calls the helper script:
-
-Add this to your `~/.bashrc` / `~/.zshrc` (replace `<user>` and `/server/path/to/NatMEG-BIDSifier`):
+**Example**:
 
 ```bash
-alias cir-bidsify="./scripts/cir-bidsify.sh user@server /server/path/to/NatMEG-BIDSifier"
+./scripts/serverctl.sh start
+# test with: curl http://localhost:18080/api/ping
 ```
 
-Now open `http://localhost:8080`!
+Then from your laptop, create a tunnel manually:
+```bash
+ssh -L 8080:localhost:18080 user@compute.kcir.se
+```
 
-Highlights
-- Minimal FastAPI server located at `server/app.py` that runs `bidsify.py` for you.
-- A small static front-end under `web/` implements a browser UI that speaks to the server via REST + WebSocket for real-time job logs.
-- Web UI can submit jobs (analyse, run, report), stream logs in real-time, and fetch artifacts (e.g. `bids_results.json` or TSV conversion tables) produced by jobs.
+Or run a text-based browser on the server (`lynx` or `w3m`).
 
-See (scripts/README.md)[scripts/README.md] for full details of the helper scripts to start/stop the server and create SSH tunnels.
+##### `localctl.sh` – Remote server + SSH tunnel orchestration
 
+Combines three operations: start remote server, check health, create SSH tunnel. Perfect for accessing a remote server from your laptop.
 
-Recommended alias (safe): use the script or the already documented wait-for-ping one-liner. Example alias that calls the helper script:
+**Features:**
+- **Auto-port selection** (default): automatically picks a free remote port (18080–18150) and local port (8080+)
+- **Multi-user support**: allows concurrent servers on shared hosts without port conflicts
+- **Saved connection details**: remembers SSH target and remote repo path (`.tunnel.repo`, `.tunnel.port`) for simplified repeat commands
+- **Auto-browser opening** (macOS/Linux/Windows): opens browser after tunnel is ready
+- Cross-platform local port detection (macOS/Linux/Windows/Git Bash)
+- Supports passwordless SSH (preferred) or `sshpass` for password automation
+
+**Usage:**
+```bash
+./scripts/localctl.sh [start|stop|status|list|cleanup] [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh]
+
+Commands:
+  start   - Start remote server and create tunnel (default)
+  stop    - Stop tunnel (optionally stop remote server)
+  status  - Check tunnel and remote server status
+  list    - List all your running servers on the remote host
+  cleanup - Stop a specific server by port number (use when pidfile is missing)
+
+Flags:
+  --local-port N    - Port on your laptop to listen on (defaults to 8080, auto-picks if busy)
+  --remote-port N   - Remote server loopback port (disables auto-port, uses specified port)
+  --autossh         - Use autossh for auto-reconnect
+
+Simple helper that:
+  - runs ./scripts/serverctl.sh start on the remote host
+  - waits for the remote /api/ping to respond
+  - sets up an SSH tunnel that forwards remote:REMOTE_PORT -> local:LOCAL_PORT
+  - writes the tunnel PID to .tunnel.pid in the repo root
+  - by default, auto-selects a free remote port (range 18080-18150) and records it in .tunnel.port
+
+If password-less SSH keys are not available you will be prompted for a password
+and the helper will try to use sshpass automatically (if installed) to avoid
+multiple prompts.
+```
 
 ```bash
-alias cir-bidsify='$PWD/scripts/cir-bidsify.sh <user>@<server> /server/path/to/script'
+# Full command with all arguments (simplest for first use)
+./scripts/localctl.sh start user@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
+
+# After running start once, simplified commands work (no need to re-specify host/path)
+./scripts/localctl.sh status    # show tunnel & remote server status
+./scripts/localctl.sh list      # list running servers on remote host
+./scripts/localctl.sh stop      # stop tunnel (and optionally remote server)
+
+# Advanced: specific ports or auto-reconnect
+./scripts/localctl.sh start user@compute.kcir.se /path --remote-port 18090
+./scripts/localctl.sh start user@compute.kcir.se /path --autossh  # uses autossh for auto-reconnect
+
+# Cleanup orphaned servers by port
+./scripts/localctl.sh cleanup
 ```
 
-Now open `http://localhost:8080`!
+**Recommended alias:**
 
-Real-time logs
-- The server exposes real-time job logs via WebSockets at `ws://<host>/ws/jobs/{job_id}/logs` so the web UI can stream stdout/stderr while conversions run.
+Add this to your `~/.bashrc` / `~/.zshrc`:
 
-Security note
+```bash
+alias cir-bidsify="./scripts/localctl.sh <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier"
+```
+
+Now you can simply:
+```bash
+cir-bidsify
+# Browser opens automatically to http://localhost:8080
+```
+
+#### Security note
 - The bundled server is optimised for convenience and internal/trusted use. If you expose the server publicly, add TLS and authentication and restrict file read/write operations as appropriate.
+- Server prefers binding to loopback (127.0.0.1) for security; SSH tunnel then forwards to your laptop instead of exposing to the internet.
 
-### Quick .venv and local setup notes (local development or single-host use)
+### Quick local setup (development or single-host use)
 
-#### macOS / Linux (recommended quick start)
-
-1. Create a project virtual environment in the repository root and activate it (zsh / bash):
+#### macOS / Linux
 
 ```bash
-# create a .venv in the repo (place near project root so it's easy to ignore)
+# Create and activate virtual environment
 python3 -m venv .venv
-
-# macOS / linux shells
 source .venv/bin/activate
-```
 
-2. Install server deps and run the server:
-
-```bash
+# Install dependencies and start server
 pip install -r requirements.txt
-uvicorn server.app:app --host 127.0.0.1 --port 8080
+./scripts/serverctl.sh start
+# Browser opens automatically to http://localhost:8080
 ```
 
 #### Windows (PowerShell)
@@ -147,14 +232,7 @@ TBA
 
 ## Configuration
 
-Copy `default_config.yml` and customize it for your parameters:
-
-```yaml
-# Configuration example
-dataset_name: "MyStudy"
-output_directory: "/path/to/output"
-# ... additional settings
-```
+Copy `default_config.yml` and customize it for your parameters or start a webserver and save your edits.
 
 ## Project structure
 
@@ -175,7 +253,7 @@ Top-level layout you will interact with during development / server runs:
 │   └── styles.css
 ├── scripts/              # helper scripts for server / tunnelling
 │   └── serverctl.sh      # start/stop/status helper (uses .server.pid + ~/natmeg-server.log)
-│   └── cir-bidsify.sh      # helper to connect and start remote server with port forwarding
+│   └── localctl.sh    # helper to connect and start remote server with port forwarding
 └── ...
 
 ## Dependencies

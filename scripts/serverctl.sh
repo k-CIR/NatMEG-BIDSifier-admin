@@ -1,8 +1,41 @@
 #!/usr/bin/env bash
 # Lightweight server control script for NatMEG-BIDSifier
-# Usage: ./serverctl.sh start|stop|status|restart [--port N] [--host HOST]
+# Usage: ./serverctl.sh {start|stop|status|restart} [--port N] [--host HOST]
 
 set -euo pipefail
+
+usage(){
+  cat <<EOF
+Usage: $0 {start|stop|status|restart} [--port N] [--host HOST]
+
+Commands:
+  start   - Start uvicorn server in background (auto-opens browser on localhost)
+  stop    - Stop server
+  status  - Check if server is running
+  restart - Restart server
+
+Flags:
+  --port N    - Port to listen on (default: 8080, via \$PORT env var)
+  --host HOST - Host to bind to (default: 127.0.0.1, via \$HOST env var)
+
+Examples:
+  ./scripts/serverctl.sh start                      # start on localhost:8080
+  ./scripts/serverctl.sh start --port 18080         # start on localhost:18080
+  PORT=9090 ./scripts/serverctl.sh start            # use env var for port
+  ./scripts/serverctl.sh status                     # check status
+  ./scripts/serverctl.sh stop                       # stop the server
+
+Notes:
+  - Uses .venv/bin/python if available, falls back to system python
+  - Logs written to ~/natmeg-server-{PORT}.log
+  - Writes pidfile to .server.{PORT}.pid in repo root
+  - Browser auto-opens when binding to localhost (macOS/Linux/Windows)
+  - Refuses to start if port is already in use
+EOF
+  exit 2
+}
+
+if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then usage; fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Defaults (can be overridden via flags or environment)
@@ -68,6 +101,21 @@ start(){
   NEWPID=$!
   echo "$NEWPID" > "$PIDFILE"
   echo "server started (pid=$NEWPID), logs -> $LOGFILE"
+  
+  # Auto-open browser if running locally (cross-platform: macOS, Linux, Windows/Git Bash)
+  if [[ "$HOST" == "127.0.0.1" || "$HOST" == "localhost" ]]; then
+    sleep 1  # give server a moment to start
+    if command -v open >/dev/null 2>&1; then
+      # macOS
+      open "http://localhost:${PORT}"
+    elif command -v xdg-open >/dev/null 2>&1; then
+      # Linux
+      xdg-open "http://localhost:${PORT}" >/dev/null 2>&1
+    elif command -v start >/dev/null 2>&1; then
+      # Windows/Git Bash
+      start "http://localhost:${PORT}"
+    fi
+  fi
 }
 
 stop(){
@@ -111,6 +159,6 @@ case "$CMD" in
   restart) stop; sleep 0.4; start ;; 
   status) status ;; 
   *)
-    echo "Usage: $0 {start|stop|status|restart} [--port N] [--host HOST]"; exit 2
+    usage
     ;;
 esac

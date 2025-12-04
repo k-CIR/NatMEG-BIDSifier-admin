@@ -15,11 +15,11 @@ Project:
   - ''
   Sinuhe raw: /neuro/data/sinuhe/<project_path_on_sinuhe> 
   Kaptah raw: /neuro/data/kaptah/<project_path_on_kaptah>
-  Root: /Users/andreas.gerhardsson/Sites/NatMEG-utils/neuro/data/local/
-  Raw: /Users/andreas.gerhardsson/Sites/NatMEG-utils/neuro/data/local/OPM-benchmarking/raw
-  BIDS: /Users/andreas.gerhardsson/Sites/NatMEG-utils/neuro/data/local/OPM-benchmarking/BIDS
-  Calibration: /Users/andreas.gerhardsson/Sites/NatMEG-utils/neuro/data/local/<project>/databases/sss/sss_cal.dat
-  Crosstalk: /Users/andreas.gerhardsson/Sites/NatMEG-utils/neuro/data/local/<project>/databases/ctc/ct_sparse.fif
+  Root: ''
+  Raw: <Root>/<Project name>/raw
+  BIDS: <Root>/<Project name>/BIDS
+  Calibration: <Root>/<Project name>/triux_files/sss/sss_cal.dat
+  Crosstalk: <Root>/<Project name>/triux_files/ctc/ct_sparse.fif
   Logfile: pipeline_log.log
 OPM:
   polhemus:
