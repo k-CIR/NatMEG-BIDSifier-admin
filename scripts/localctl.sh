@@ -245,7 +245,13 @@ if [[ "$cmd" == "start" ]]; then
 
   # Find the SSH tunnel PID (since -f makes SSH fork, we can't capture $!)
   sleep 0.5
-  tunnel_pid=$(pgrep -f "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" | head -1)
+  
+  # Use ps and grep as a more portable alternative to pgrep
+  if command -v pgrep >/dev/null 2>&1; then
+    tunnel_pid=$(pgrep -f "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" | head -1)
+  else
+    tunnel_pid=$(ps aux 2>/dev/null | grep -v grep | grep "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" | awk '{print $2}' | head -1)
+  fi
   if [[ -n "$tunnel_pid" ]]; then
     echo "$tunnel_pid" > "$PIDFILE"
     echo "Tunnel established (pid=$tunnel_pid). Opening http://localhost:${LOCAL_PORT} in your browser..."
