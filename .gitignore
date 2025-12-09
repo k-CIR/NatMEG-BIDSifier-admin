@@ -10,7 +10,7 @@ bids_config.yml
 *.log
 .DS_Store
 __pycache__/
-.server.pid
+.server.*.pid
 .tunnel.*
 # Electron build artifacts and bundled runtime — kept in the electron branch, not main
 electron/dist/
