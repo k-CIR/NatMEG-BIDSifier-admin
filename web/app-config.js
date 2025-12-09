@@ -803,6 +803,77 @@
       formInputs.forEach(el => el.addEventListener('input', enableSaveForEdit));
     }
 
+    // --- Automatic path updates: If not manually edited, update Raw Data Path and BIDS Output Path
+    // Track manual edits for Raw Data Path and BIDS Output Path to prevent overwriting them
+    let rawPathManuallyEdited = false;
+    let bidsPathManuallyEdited = false;
+
+    const rawPathEl = document.getElementById('config_raw_path');
+    const bidsPathEl = document.getElementById('config_bids_path');
+    const rootPathEl = document.getElementById('config_root_path');
+    const projectNameEl = document.getElementById('config_project_name');
+
+    // Mark paths as manually edited when user interacts with them
+    if (rawPathEl) {
+      rawPathEl.addEventListener('input', () => {
+        if (rawPathEl.value.trim()) {
+          rawPathManuallyEdited = true;
+        }
+      });
+    }
+    if (bidsPathEl) {
+      bidsPathEl.addEventListener('input', () => {
+        if (bidsPathEl.value.trim()) {
+          bidsPathManuallyEdited = true;
+        }
+      });
+    }
+
+    // Function to update paths automatically
+    function updateAutomaticPaths() {
+      const root = rootPathEl ? rootPathEl.value.trim() : '';
+      const projectName = projectNameEl ? projectNameEl.value.trim() : '';
+
+      // Remove trailing slashes for consistent path construction
+      const cleanRoot = root.replace(/\/$/, '');
+
+      // Update Raw Data Path if not manually edited
+      if (!rawPathManuallyEdited && rawPathEl) {
+        if (cleanRoot && projectName) {
+          rawPathEl.value = cleanRoot + '/' + projectName + '/raw';
+        } else {
+          rawPathEl.value = '';
+        }
+      }
+
+      // Update BIDS Output Path if not manually edited
+      if (!bidsPathManuallyEdited && bidsPathEl) {
+        if (cleanRoot && projectName) {
+          bidsPathEl.value = cleanRoot + '/' + projectName + '/BIDS';
+        } else {
+          bidsPathEl.value = '';
+        }
+      }
+    }
+
+    // Attach listeners to Root Path and Project Name fields
+    if (rootPathEl) {
+      rootPathEl.addEventListener('input', updateAutomaticPaths);
+      rootPathEl.addEventListener('change', updateAutomaticPaths);
+    }
+    if (projectNameEl) {
+      projectNameEl.addEventListener('input', updateAutomaticPaths);
+      projectNameEl.addEventListener('change', updateAutomaticPaths);
+    }
+
+    // Reset manual edit flags when config is loaded (so automatic updates work again on fresh load)
+    const originalPopulate = populateFormFromYaml;
+    window.populateFormFromYaml = async function(...args) {
+      rawPathManuallyEdited = false;
+      bidsPathManuallyEdited = false;
+      return originalPopulate.apply(this, args);
+    };
+
     // --- Analyse gating: Only allow running/analyzing when there's a saved server-side
     // config available. This disambiguates local-file edits (uploads) vs server-resident
     // configs. Local uploads must be saved to the server before the Analyze button is
