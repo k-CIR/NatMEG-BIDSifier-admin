@@ -182,6 +182,9 @@ def extract_info_from_filename(file_name: str):
     
     # Extract participant, task, processing, datatypes and extension
     participant = re.search(r'(NatMEG_|sub-)(\d+)', file_name).group(2).zfill(4)
+
+    if len(participant.lstrip('0')) < 3:
+        participant = participant.lstrip('0').zfill(3)
     extension = '.' + re.search(r'\.(.*)', basename(file_name)).group(1)
     datatypes = list(set([r.lower() for r in re.findall(r'(meg|raw|opm|eeg|behav)', basename(file_name), re.IGNORECASE)] +
                          ['opm' if 'kaptah' in file_name else '']))
@@ -767,7 +770,7 @@ def bids_path_from_rawname(file_name, date_session, config, pmap=None):
     suffix = info_dict.get('suffix')
     
     # Strip prefix and zero-pad subject and session
-    subj_out = subject.lstrip('0').zfill(4) if len(subject) > 3 else subject.zfill(3)
+    subj_out = subject
     session_out = date_session.replace('ses-', '')
     session_out = session_out.lstrip('0').zfill(2) if len(session_out) > 1 else session_out.zfill(2)
 
@@ -1203,16 +1206,15 @@ def bidsify(config: dict):
             pmap = pd.read_csv(participant_mapping, dtype=str)
         except Exception as e:
             print('Participant file not found, skipping')
-            
-    is_natmeg_id =  all(df['participant_from'].str.replace('sub-', '').astype(int) == df['participant_to'].astype(int))
     
     # Start by creating the BIDS directory structure
     unique_participants_sessions = df[['participant_to', 'session_to', 'datatype']].drop_duplicates()
     for _, row in unique_participants_sessions.iterrows():
-        if is_natmeg_id:
+        
+        if len(str(row['participant_to']).lstrip('0')) >= 3:
             subject_padded = str(row['participant_to']).zfill(4)
         else:
-            subject_padded = str(row['participant_to']).zfill(3)
+            subject_padded = str(row['participant_to']).lstrip('0').zfill(3)
         session_padded = str(row['session_to']).zfill(2)
         bids_path = BIDSPath(
             subject=subject_padded,
