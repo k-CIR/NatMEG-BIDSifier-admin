@@ -990,7 +990,8 @@ def load_conversion_table(config: dict):
     # Load the most recent conversion table
     # Prefer capitalized keys but accept common alternative keys as fallback
     path_BIDS = config.get('BIDS') or config.get('bids') or config.get('BIDSPath') or config.get('bids_path') or None
-    logPath = path_BIDS.replace('BIDS', 'logs') if path_BIDS else None
+    logPath = join(dirname(path_BIDS), 'logs') if path_BIDS else None
+    
     conversion_file = config.get('Conversion_file', None)
     overwrite = config.get('Overwrite_conversion', False)
     
