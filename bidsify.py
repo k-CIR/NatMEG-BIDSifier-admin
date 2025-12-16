@@ -252,42 +252,43 @@ def get_split_file_parts(file_path):
     Get all parts of a potentially split .fif file following MNE naming convention.
     
     Args:
-        base_file: Base .fif file path
+        file_path: File path (string or Path object)
         
     Returns:
-        list: All file parts that exist (base file and any split parts)
+        str or list: Single file path if no splits found, list of file paths if splits exist
     """
-    parts = []
-    
     file_path_str = str(file_path)
     
-    basename(file_path_str).replace('_', '*')
-    suffix, extension = basename(file_path_str).split('_')[-1].split('.')
-    suffix = f'_{suffix}'
-    extension = f'.{extension}'
+    # If the file doesn't exist and has no split pattern, return as-is
+    if not exists(file_path_str):
+        return file_path_str
     
-    base = basename(file_path_str).replace(f'{suffix}{extension}', '').replace('_', '*')
+    # Try the MNE convention with -1.fif, -2.fif, etc.
+    # Look for split files: filename_raw-1.fif, filename_raw-2.fif, etc.
+    parts = []
+    base_path = re.sub(r'-\d+\.fif$', '.fif', file_path_str)
     
-    # First try if split is in file name
-    search_str = f"{dirname(file_path_str)}/{base}_split*{suffix}.fif"
-    parts = glob(search_str)
-    
-    if not parts:
-        # Then try the MNE convention with -1.fif, -2.fif, etc.
+    # Check if the base file exists
+    if exists(base_path) and base_path != file_path_str:
+        parts.append(base_path)
+    else:
+        # No split suffix found, start with the original path
         parts.append(file_path_str)
-        base_path = re.sub(r'-\d+\.fif$', '.fif', file_path_str).replace('.fif', '')
-        # Look for split files: filename_raw-1.fif, filename_raw-2.fif, etc.
-        i = 1
-        while True:
-            split_file = f"{base_path}-{i}.fif"
-            if exists(split_file):
-                parts.append(split_file)
-                i += 1
-            else:
-                break
     
+    # Look for numbered splits: filename-1.fif, filename-2.fif, etc.
+    base_without_ext = base_path.replace('.fif', '')
+    i = 1
+    while True:
+        split_file = f"{base_without_ext}-{i}.fif"
+        if exists(split_file):
+            parts.append(split_file)
+            i += 1
+        else:
+            break
+    
+    # Return single string if only one part, list if multiple
     if len(parts) == 1:
-        return str(file_path_str)
+        return parts[0]
     else:
         return parts
 
@@ -1195,6 +1196,7 @@ def bidsify(config: dict):
     os.makedirs(logPath, exist_ok=True)
     df, conversion_file = load_conversion_table(config)
     
+    
     if df.empty or not conversion_file:
         print("No files to process in conversion table.")
         return
@@ -1424,11 +1426,28 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
         entry = {}
         bids_file = os.path.join(row['bids_path'].replace(config.get('BIDS', ''), ''), os.path.basename(destination_file))
         entry['Source File'] = source_file
-        entry['Source Size'] = getsize(source_file)
+        
+        # Only add source size if file exists
+        try:
+            entry['Source Size'] = getsize(source_file) if exists(source_file) else 0
+        except (OSError, FileNotFoundError):
+            entry['Source Size'] = 0
+            
         entry['BIDS File'] = destination_file
-        entry['BIDS Size'] = getsize(destination_file)
-        entry['BIDS modification Date'] = datetime.fromtimestamp(os.path.getmtime(destination_file)).isoformat()
-        entry['Validated'] = 'True BIDS' if BIDSValidator().is_bids(bids_file) else 'False BIDS'
+        
+        # Only add BIDS size and modification date if file exists
+        try:
+            if exists(destination_file):
+                entry['BIDS Size'] = getsize(destination_file)
+                entry['BIDS modification Date'] = datetime.fromtimestamp(os.path.getmtime(destination_file)).isoformat()
+            else:
+                entry['BIDS Size'] = 0
+                entry['BIDS modification Date'] = 'Not yet created'
+        except (OSError, FileNotFoundError):
+            entry['BIDS Size'] = 0
+            entry['BIDS modification Date'] = 'Not yet created'
+            
+        entry['Validated'] = 'True BIDS' if exists(destination_file) and BIDSValidator().is_bids(bids_file) else 'False BIDS'
         entry['Participant'] = row['participant_to']
         entry['Session'] = row['session_to']
         entry['Task'] = row['task']
@@ -1455,20 +1474,22 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
         source_file = f"{row['raw_path']}/{row['raw_name']}"
         source_base = re.sub(r'_raw-\d+\.fif$', '.fif', source_file)
         
-        bp = get_bids_path_from_fname(join(row['bids_path'], row['bids_name']))
+        # Construct the full BIDS file path as a string
+        bids_file_path = join(row['bids_path'], row['bids_name'])
         
         # Create a base key for grouping (remove split suffixes)
-        
         source_files = get_split_file_parts(source_base)
-        destination_files = get_split_file_parts(bp)
+        destination_files = get_split_file_parts(bids_file_path)
 
-        # Initialize variables with defaults
-        if source_files:
-            if isinstance(source_files, list):
-                for source_file, destination_file in zip(source_files, destination_files):
-                    grouped_entries.append(create_entry(source_file, destination_file, row))
-            else:
-                grouped_entries.append(create_entry(source_files, destination_files, row))                
+        # Normalize both to lists for consistent handling
+        if not isinstance(source_files, list):
+            source_files = [source_files]
+        if not isinstance(destination_files, list):
+            destination_files = [destination_files]
+            
+        # If we have mismatched counts, use the shorter one to avoid zip truncation issues
+        for source_file, destination_file in zip(source_files, destination_files):
+            grouped_entries.append(create_entry(source_file, destination_file, row))                
                         
     
     def _same_without_timestamp(a, b):

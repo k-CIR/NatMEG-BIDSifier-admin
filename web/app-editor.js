@@ -7,8 +7,7 @@
     if (!h) return '';
     const key = String(h).toLowerCase();
     const map = {
-      timestamp: 'Timestamp',
-      times_tamp: 'Timestamp',
+      session_from: 'Scan date',
       status: 'Status',
       participant_to: 'Participant',
       session_to: 'Session',
@@ -38,7 +37,7 @@
     const padding = 36; // cell padding to keep bits of space
     // sensible per-key min/max (px)
     const defaults = {
-      timestamp: [90, 260],
+      session_from: [90, 140],
       status: [100, 140],
       participant_to: [20, 100],
       session_to: [60, 160],
@@ -288,7 +287,7 @@
     // when present; otherwise we will add column placeholders so the editor can
     // show a consistent fixed column set for conversion tables.
     const desiredCols = [
-      { key: 'timestamp', fallbacks: ['timestamp','time_stamp','times_tamp'] },
+      { key: 'session_from', fallbacks: ['session_from','scan_date','scan date','date'] },
       { key: 'status', fallbacks: ['status'] },
       { key: 'participant_to', fallbacks: ['participant_to','subject_to','participant'] },
       { key: 'session_to', fallbacks: ['session_to'] },
@@ -684,6 +683,12 @@
       // update the stored original/full data to reflect the saved state
       fullEditorData = { headers: JSON.parse(JSON.stringify(merged.headers)), rows: JSON.parse(JSON.stringify(merged.rows)), filename: currentEditorData.filename };
       originalEditorData = { headers: JSON.parse(JSON.stringify(fullEditorData.headers)), rows: JSON.parse(JSON.stringify(fullEditorData.rows)), filename: fullEditorData.filename };
+      // Sync the saved path back to config_conversion_file so it stays in sync with the form
+      const convFileEl = document.getElementById('config_conversion_file');
+      if (convFileEl && path) {
+        convFileEl.value = path;
+        console.log('[AppEditor] Synced conversion path to hidden field:', path);
+      }
       // Re-open editor from merged content so view columns stay in sync with saved file
       try {
         if (window.EditorModel && typeof window.EditorModel.modelToTsv === 'function') {
@@ -696,6 +701,18 @@
       if (document.getElementById('saveTableServer')) document.getElementById('saveTableServer').disabled = true;
       if (document.getElementById('saveTableCanonical')) document.getElementById('saveTableCanonical').disabled = true;
       if (document.getElementById('downloadTable')) document.getElementById('downloadTable').disabled = true;
+      
+      // Automatically save the config file to persist the updated Conversion_file path to YAML
+      try {
+        if (window.AppConfig && typeof window.AppConfig.saveConfig === 'function') {
+          // Get the current config save path
+          const saveConfigPath = document.getElementById('saveConfigPath')?.value || 
+                                document.getElementById('loadConfigPath')?.value || '';
+          console.log('[AppEditor] Auto-saving config with path:', saveConfigPath);
+          await window.AppConfig.saveConfig(saveConfigPath);
+        }
+      } catch(e) { console.warn('Config auto-save after table save failed:', e); }
+      
       alert('Saved to ' + j.path);
     } catch (err) { alert('Save failed: ' + err.message); }
   }
@@ -736,11 +753,24 @@
         const bids = (document.getElementById('config_bids_path')?.value || '').trim();
         const conv = (document.getElementById('config_conversion_file')?.value || 'bids_conversion.tsv').trim() || 'bids_conversion.tsv';
         let candidate = '';
-        if (root && proj) candidate = `${root.replace(/\/+$/,'')}/${proj.replace(/\/+$/,'')}/logs/${conv}`;
-        else if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))) candidate = `${bids.replace(/\/+$/,'')}/conversion_logs/${conv}`;
-        // Only auto-fill when the input is empty so we don't clobber a user-provided path.
+        
+        // Check if conv is already a full path (starts with / or ~)
+        if (conv.startsWith('/') || conv.startsWith('~')) {
+          // It's already a full path, use it directly
+          candidate = conv;
+        } else {
+          // It's a relative filename, build the full path
+          if (root && proj) candidate = `${root.replace(/\/+$/,'')}/${proj.replace(/\/+$/,'')}/logs/${conv}`;
+          else if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))) candidate = `${bids.replace(/\/+$/,'')}/conversion_logs/${conv}`;
+        }
+        
+        // Only auto-fill when the input is empty and the candidate path is different so we don't clobber a user-provided path or duplicate the same path.
         const savePathEl = document.getElementById('saveTablePath');
-        if (savePathEl && candidate && !savePathEl.value.trim()) savePathEl.value = candidate;
+        const currentPath = (savePathEl?.value || '').trim();
+        if (savePathEl && candidate && !currentPath && candidate !== currentPath) {
+          savePathEl.value = candidate;
+          console.log('[AppEditor] Auto-filled saveTablePath:', candidate);
+        }
       } catch (e) { /* ignore */ }
     };
 
@@ -759,6 +789,33 @@
       }
     });
 
+    // Sync saveTablePath changes back to config_conversion_file
+    const saveTablePathEl = document.getElementById('saveTablePath');
+    if (saveTablePathEl) {
+      saveTablePathEl.addEventListener('input', () => {
+        try {
+          const path = (saveTablePathEl.value || '').trim();
+          const convFileEl = document.getElementById('config_conversion_file');
+          if (convFileEl && path) {
+            convFileEl.value = path;
+          }
+          // Enable save button when path is edited
+          if (document.getElementById('saveTableServer')) document.getElementById('saveTableServer').disabled = false;
+        } catch (e) { /* ignore */ }
+      });
+      saveTablePathEl.addEventListener('change', () => {
+        try {
+          const path = (saveTablePathEl.value || '').trim();
+          const convFileEl = document.getElementById('config_conversion_file');
+          if (convFileEl && path) {
+            convFileEl.value = path;
+          }
+          // Enable save button when path is edited
+          if (document.getElementById('saveTableServer')) document.getElementById('saveTableServer').disabled = false;
+        } catch (e) { /* ignore */ }
+      });
+    }
+
     if (loadTableBtn && loadTableInput) {
       loadTableBtn.addEventListener('click', async () => {
         try {
@@ -775,6 +832,23 @@
           if (j && typeof j.content === 'string') {
             try { openTableEditor(j.content, (path.split('/').pop() || 'conversion.tsv')); } catch(e) { /* ignore */ }
             const te = document.getElementById('tableEditor'); if (te) te.style.display = 'block';
+            
+            // Update config file with the loaded path
+            const convFileEl = document.getElementById('config_conversion_file');
+            if (convFileEl) {
+              convFileEl.value = path;
+              console.log('[AppEditor] Updated conversion path to:', path);
+            }
+            
+            // Auto-save config with the new path
+            try {
+              if (window.AppConfig && typeof window.AppConfig.saveConfig === 'function') {
+                const saveConfigPath = document.getElementById('saveConfigPath')?.value || 
+                                      document.getElementById('loadConfigPath')?.value || '';
+                console.log('[AppEditor] Auto-saving config after load with path:', saveConfigPath);
+                await window.AppConfig.saveConfig(saveConfigPath);
+              }
+            } catch(e) { console.warn('Config auto-save after table load failed:', e); }
           } else {
             alert('File not found or empty: ' + path);
           }

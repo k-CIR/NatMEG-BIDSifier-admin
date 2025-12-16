@@ -45,127 +45,91 @@
         </div>
       </aside>
       <main class="main-content">
-      <div class="container">
-      <!-- small badge to help debugging which view is active -->
-      <div id="activeViewBadge" class="active-view-badge">view: main-config</div>
-      <div class="header-bar">
-        <div>
-          <h1>NatMEG-BIDSifier 2 — Web UI</h1>
-          <div class="subtitle">Edit your config, preview conversion tables and run conversions — lightweight web interface for the server.</div>
-        </div>
-        <div class="header-actions">
-          <!-- Connection badge updates live (see web/app.js) -->
-          <div id="connectionBadge" class="connection-badge disconnected" role="status" aria-live="polite">
-            <span id="connectionDot" class="connection-dot" aria-hidden="true"></span>
-            <small id="connectionText" class="connection-text">Disconnected</small>
-          </div>
-        </div>
-      </div>
-
-      <!-- upload controls visible only on the Configuration view (moved into main-config) -->
-
-      <div id="main-config" class="main-view">
-        <h3>Configuration</h3>
-
-        <div class="file-row" style="display:flex; gap:16px; align-items:flex-start; margin-top:12px; flex-direction:column;">
-          <!-- Server section spans both columns -->
-          <div class="form-section" style="width:100%; margin-bottom:14px;">
-            <!-- <input type="file" id="fileInput" accept=".yml,.yaml" style="display:none" aria-hidden="true" />
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
-              <div style="font-weight:700">Server</div>
-              <small class="hint">Leave blank for local server</small>
+        <div class="container">
+          <!-- small badge to help debugging which view is active -->
+          <div id="activeViewBadge" class="active-view-badge">view: main-config</div>
+          <div class="header-bar">
+            <div>
+              <h1>NatMEG-BIDSifier — Web UI</h1>
+              <div class="subtitle">Edit your config, preview conversion tables and run conversions — lightweight web interface for the server.</div>
             </div>
-            <div class="form-group" style="margin-bottom:10px;">
-              <label>SSH Server (optional)</label>
-              <input id="config_ssh_server" placeholder="user@host (optional)" class="input-wide-compact">
-            </div> -->
-            <div class="form-group">
-              <label>Server config path</label>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <input id="loadConfigPath" placeholder="server path to load config file" class="input-wide-compact" style="flex:1">
-                <button id="loadConfigBtn" class="btn">Load</button>
-                <button id="saveConfigBtn" class="btn primary" disabled>💾 Save</button>
-                <div id="configSaveState" class="muted" style="margin-left:6px">saved</div>
-                <!-- <button id="reloadConfigBtn" class="btn">Reload</button> -->
+            <div class="header-actions">
+              <!-- Connection badge updates live (see web/app.js) -->
+              <div id="connectionBadge" class="connection-badge disconnected" role="status" aria-live="polite">
+                <span id="connectionDot" class="connection-dot" aria-hidden="true"></span>
+                <small id="connectionText" class="connection-text">Disconnected</small>
               </div>
             </div>
           </div>
-          <div style="display:flex; gap:16px; align-items:flex-start; width:100%">
-          <!-- Left column: form fields -->
-          <div style="flex:1 1 420px;">
 
-            <div class="form-section">
-              <h4>Project settings</h4>
-              <small class="hint">Basic project identification and tasks used to generate conversion mappings.</small>
-              <div style="display:grid; gap:8px; grid-template-columns: 1fr 1fr; align-items:start; margin-top:8px;">
-                <div>
-                  <label>Project Name</label>
-                  <input id="config_project_name" class="input-text" placeholder="My Study">
-                </div>
-                <div>
-                  <label>CIR ID</label>
-                  <input id="config_cir_id" class="input-text" placeholder="Optional CIR identifier">
-                </div>
-                <div style="grid-column: 1 / -1">
-                  <label>Tasks <small style="color: var(--muted); font-weight:400">(comma-separated)</small></label>
-                  <input id="config_tasks" class="input-text" placeholder="TaskA, TaskB">
+          <!-- upload controls visible only on the Configuration view (moved into main-config) -->
+
+          <div id="main-config" class="main-view">
+            <h3>Configuration</h3>
+
+            <div style="display:flex; gap:16px; align-items:flex-start; width:100%;">
+              <!-- Server section spans both columns -->
+              <div class="form-section" style="flex:1;">
+                <div style="font-weight:700; margin-bottom:8px;">Server config path <small style="color: var(--muted); font-weight:400">Absolute path</small></div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input id="loadConfigPath" placeholder="server path to load config file" class="input-wide-compact" style="flex:1">
+                  <button id="loadConfigBtn" class="btn">Load</button>
+                  <button id="saveConfigBtn" class="btn primary" disabled>💾 Save</button>
+                  <div id="configSaveState" class="muted" style="margin-left:6px">saved</div>
+                  <!-- <button id="reloadConfigBtn" class="btn">Reload</button> -->
                 </div>
               </div>
             </div>
+
+            <div style="display:flex; gap:16px; align-items:flex-start; width:100%;">
+              <!-- Left column: form fields -->
+              <div style="flex:1 1 420px;">
+
+                <div class="form-section">
+                  <h4>Project settings</h4>
+                  <small class="hint">Basic project identification and tasks used to generate conversion mappings.</small>
+                  <div style="display:flex; gap:8px; align-items:flex-start;">
+                    <div class="form-group" style="flex:1;">
+                      <label>Project Name</label>
+                      <input id="config_project_name" class="input-text" placeholder="My Study">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                      <label>CIR ID</label>
+                      <input id="config_cir_id" class="input-text" placeholder="Optional CIR identifier">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Tasks <small style="color: var(--muted); font-weight:400">(comma-separated)</small></label>
+                    <input id="config_tasks" class="input-text" placeholder="TaskA, TaskB">
+                  </div>
+                </div>
 
             <div class="form-section">
               <h4>Paths</h4>
               <small class="hint">Filesystem locations used by the conversion (root, raw data and outputs).</small>
               <div class="form-group">
-                <label>Root Path <small style="color: var(--muted); font-weight:400">Absolute path or '~/'</small> </label>
+                <label>Project's root <small style="color: var(--muted); font-weight:400">Absolute path</small></label>
                 <div style="display:flex; gap:8px;"><input id="config_root_path" class="input-wide-compact"></div>
               </div>
               <div class="form-group">
-                <label>Raw Data Path <small style="color: var(--muted); font-weight:400">(auto-filled: Root + Project + '/raw')</small></label>
+                <label>Raw Data Folder</label>
                 <div style="display:flex; gap:8px;"><input id="config_raw_path" class="input-wide-compact"></div>
               </div>
               <div class="form-group">
-                <label>BIDS Output Path <small style="color: var(--muted); font-weight:400">(auto-filled: Root + Project + '/BIDS')</small></label>
+                <label>BIDS Output Folder</label>
                 <div style="display:flex; gap:8px;"><input id="config_bids_path" class="input-wide-compact"></div>
               </div>
-
-              <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-                <div class="form-group">
-                  <label>Calibration file</label>
-                  <div style="display:flex; gap:8px;"><input id="config_calibration_path" class="input-text"></div>
-                </div>
-                <div class="form-group">
-                  <label>Crosstalk file</label>
-                  <div style="display:flex; gap:8px;"><input id="config_crosstalk_path" class="input-text"></div>
-                </div>
+              <div class="form-group">
+                <label>Calibration file</label>
+                <div style="display:flex; gap:8px;"><input id="config_calibration_path" class="input-text"></div>
+              </div>
+              <div class="form-group">
+                <label>Crosstalk file</label>
+                <div style="display:flex; gap:8px;"><input id="config_crosstalk_path" class="input-text"></div>
               </div>
             </div>
-
-            <div class="form-section">
-              <h4>Conversion settings</h4>
-              <small class="hint">Conversion table and small options that affect how conversion runs.</small>
-              <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-                <div style="flex:1; min-width:220px">
-                  <div class="form-group">
-                    <label>Conversion Table File</label>
-                    <input id="config_conversion_file" class="input-text" value="bids_conversion.tsv">
-                  </div>
-                
-                  <div class="form-group">
-                    <label>Overwrite existing</label>
-                      <select id="config_overwrite" class="input-wide-compact">
-                        <option value="false">No</option>
-                        <option value="true">Yes</option>
-                      </select>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            </div>
-          
-
+  
+          </div>
           <!-- Right column: YAML editor + dataset metadata (save controls are part of server section above) -->
           <div class="form-section" style="flex:1 1 520px; display:flex; flex-direction:column; gap:8px;">
             <div style="display:flex; gap:8px; align-items:center;">
@@ -241,11 +205,8 @@
               </div>
             </div>
 
-              
           </div>
-          
         </div>
-      </div>
       </div>
 
       <!-- EDITOR -->
@@ -253,9 +214,14 @@
         <div id="tableEditor" style="margin-top:0;">
           <h3>Conversion Table Editor</h3>
 
+
           <!-- Editor action row: Analyze (primary), download, close, load, reload, save -->
           <div style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap:nowrap;">
-            <!-- desired order: Analyse, Load Table, path input, Save Changes -->
+            <!-- desired order: Analyse, Load Table, path input, Save Changes, Overwrite -->
+             <div style="display:flex; gap:6px; align-items:center; white-space:nowrap;">
+              <label for="config_overwrite" style="cursor:pointer; margin:0; font-size:14px;">Overwrite</label>
+              <input type="checkbox" id="config_overwrite" style="cursor:pointer; width:18px; height:18px;">
+            </div>
             <button id="analyzeBtn" class="btn primary">Analyse</button>
             <button id="loadTableBtn" class="btn">Load</button>
             <!-- path to the currently loaded conversion table (editable) -->
@@ -270,8 +236,6 @@
                 </button>
               </div>
             <button id="saveTableServer" class="btn primary" disabled>💾 Save</button>
-            <!-- keep reload available but out of the primary inline order -->
-            
           </div>
 
           <!-- Search / summary / batch actions -->
@@ -413,11 +377,9 @@
         </div>
       </div>
 
-      <!-- tableEditor moved into main-editor above -->
-      </div>
-    </main>
+      </main>
     </div>
-    </div>
+
     <!-- Save As modal (hidden by default) -->
     <div id="saveAsModal" class="modal hidden" aria-hidden="true">
       <div class="modal-backdrop"></div>
@@ -433,12 +395,12 @@
         </div>
       </div>
     </div>
-
     <script src="/editor-model.js"></script>
     <script src="/app-report.js"></script>
     <script src="/app-config.js"></script>
     <script src="/app-editor.js"></script>
     <script src="/app.js"></script>
     <script src="/app-jobs.js"></script>
+  </div>
   </body>
 </html>

@@ -310,13 +310,27 @@ def _safe_path(path: str) -> Optional[str]:
     - Paths starting with '~' are expanded to the current user's home directory (constrained there).
     - Paths under /data/users/<username> are allowed (confined to that user's data directory).
     - Other absolute paths are rejected (no arbitrary filesystem access).
-    - All paths must be readable/executable by the current user.
+    - For existing files/dirs: must be readable. For new files: parent directory must be writable.
     """
     if not path:
         return None
     
     user_home = os.path.expanduser('~')
     current_user = os.path.expanduser('~').split('/')[-1]
+    
+    def _is_accessible(candidate):
+        """Check if a path is accessible for reading if it exists, or parent is writable if new."""
+        if os.path.exists(candidate):
+            return os.access(candidate, os.R_OK)
+        else:
+            # For new files, check if parent directory exists and is writable
+            parent = os.path.dirname(candidate)
+            if not parent:
+                return False
+            # If parent exists, check write access; if parent doesn't exist, allow (will be created)
+            if os.path.exists(parent):
+                return os.access(parent, os.W_OK)
+            return True  # Parent will be created by os.makedirs()
     
     # Paths starting with '~' are expanded to current user's home directory
     if path.startswith('~'):
@@ -329,7 +343,7 @@ def _safe_path(path: str) -> Optional[str]:
             # Paths on different drives (Windows) or other issues
             return None
         # Check accessibility
-        if not os.access(abs_candidate, os.R_OK):
+        if not _is_accessible(abs_candidate):
             return None
         return abs_candidate
 
@@ -342,7 +356,7 @@ def _safe_path(path: str) -> Optional[str]:
         try:
             if os.path.commonpath([REPO_ROOT, abs_candidate]) == REPO_ROOT:
                 # Check accessibility
-                if not os.access(abs_candidate, os.R_OK):
+                if not _is_accessible(abs_candidate):
                     return None
                 return abs_candidate
         except ValueError:
@@ -353,7 +367,7 @@ def _safe_path(path: str) -> Optional[str]:
         try:
             if os.path.commonpath([user_data_dir, abs_candidate]) == user_data_dir:
                 # Check accessibility
-                if not os.access(abs_candidate, os.R_OK):
+                if not _is_accessible(abs_candidate):
                     return None
                 return abs_candidate
         except ValueError:
@@ -370,7 +384,7 @@ def _safe_path(path: str) -> Optional[str]:
     except ValueError:
         return None
     # Check accessibility
-    if not os.access(abs_candidate, os.R_OK):
+    if not _is_accessible(abs_candidate):
         return None
     return abs_candidate
 

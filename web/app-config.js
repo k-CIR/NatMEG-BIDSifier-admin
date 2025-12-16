@@ -131,8 +131,45 @@
       const vv = data[k]; if (vv === null || vv === '' || vv === "''" || vv === '""') el.value = ''; else el.value = String(vv || '');
       } });
 
+      // If Conversion_file is empty, compute a default path from Project Root + Project Name
+      // Store in a hidden field that the Editor and YAML serialization can access
+      let conversionFilePath = data.conversion_file || '';
+      
+      const root = (document.getElementById('config_root_path')?.value || '').trim();
+      const projName = (document.getElementById('config_project_name')?.value || '').trim();
+      
+      if (!conversionFilePath && root && projName) {
+        conversionFilePath = `${root.replace(/\/+$/, '')}/${projName.replace(/\/+$/, '')}/logs/bids_conversion.tsv`;
+        console.log('[AppConfig] Computed default conversion_file:', conversionFilePath);
+      }
+      
+      // Store conversion file path in a data attribute or hidden field for serialization
+      // Create a hidden input if it doesn't exist
+      let convFileEl = document.getElementById('config_conversion_file');
+      if (!convFileEl) {
+        convFileEl = document.createElement('input');
+        convFileEl.id = 'config_conversion_file';
+        convFileEl.type = 'hidden';
+        document.body.appendChild(convFileEl);
+        console.log('[AppConfig] Created hidden config_conversion_file field');
+      }
+      
+      if (conversionFilePath) {
+        convFileEl.value = conversionFilePath;
+        console.log('[AppConfig] Set conversion_file to:', conversionFilePath);
+      }
+
       // reflect the loaded state without guessing — no alert popup
       const saveState = document.getElementById('configSaveState'); if (saveState) saveState.textContent = 'loaded';
+      
+      // Notify listeners (e.g., AppEditor) that config has been loaded/changed
+      // so they can update their dependent fields (with a small delay to ensure DOM is ready)
+      try {
+        setTimeout(() => {
+          console.log('[AppConfig] Dispatching AppConfigChanged event');
+          window.dispatchEvent(new CustomEvent('AppConfigChanged'));
+        }, 100);
+      } catch(e) { console.error('[AppConfig] Error dispatching event:', e); }
 
       // If the YAML included both a BIDS output path and a dataset_description filename
       // attempt to load the dataset_description.json from the server and populate the form.
@@ -178,10 +215,15 @@
               const j = await resp.json();
               if (resp.ok && j && (typeof j.content === 'string') && j.content.trim()) {
                 if (window.AppEditor && typeof window.AppEditor.openTableEditor === 'function') {
-                  const savePathEl = document.getElementById('saveTablePath'); if (savePathEl) savePathEl.value = j.path || candidate;
-                  const fname = (j.path && j.path.split('/').pop()) || conv;
+                  const savePathEl = document.getElementById('saveTablePath');
+                  const resolvedPath = j.path || candidate;
+                  // Only set saveTablePath if it's not already set to avoid overwriting user-provided paths
+                  if (savePathEl && !savePathEl.value.trim()) {
+                    savePathEl.value = resolvedPath;
+                  }
+                  const fname = (resolvedPath && resolvedPath.split('/').pop()) || conv;
                   try { window.AppEditor.openTableEditor(j.content, fname); } catch(e) {}
-                  document.getElementById('status').textContent = `Loaded conversion table: ${j.path || candidate}`;
+                  document.getElementById('status').textContent = `Loaded conversion table: ${resolvedPath}`;
                   break;
                 }
               }
@@ -377,6 +419,11 @@
     // BIDS block values
     const conversionFile = v('config_conversion_file');
     const datasetDescFile = v('config_dataset_description_file');
+    
+    // Debug logging
+    if (typeof window !== 'undefined' && window.APP_DEBUG) {
+      console.debug('[writeFormToYaml] conversion_file from form:', conversionFile);
+    }
 
     // Build YAML lines — include keys even if values are empty
     const lines = [];
@@ -809,11 +856,13 @@
     let bidsPathManuallyEdited = false;
     let calibrationPathManuallyEdited = false;
     let crosstalkPathManuallyEdited = false;
+    let conversionFileManuallyEdited = false;
 
     const rawPathEl = document.getElementById('config_raw_path');
     const bidsPathEl = document.getElementById('config_bids_path');
     const calibrationPathEl = document.getElementById('config_calibration_path');
     const crosstalkPathEl = document.getElementById('config_crosstalk_path');
+    const conversionFileEl = document.getElementById('config_conversion_file');
     const rootPathEl = document.getElementById('config_root_path');
     const projectNameEl = document.getElementById('config_project_name');
 
@@ -862,6 +911,16 @@
           crosstalkPathEl.value = '';
         }
       }
+
+      // Update Conversion File Path if not manually edited
+      if (!conversionFileManuallyEdited && conversionFileEl) {
+        if (cleanRoot && projectName) {
+          const defaultFilename = 'bids_conversion.tsv';
+          conversionFileEl.value = cleanRoot + '/' + projectName + '/logs/' + defaultFilename;
+        } else {
+          conversionFileEl.value = '';
+        }
+      }
     }
 
     // Mark paths as manually edited when user interacts with them
@@ -893,6 +952,13 @@
         }
       });
     }
+    if (conversionFileEl) {
+      conversionFileEl.addEventListener('input', () => {
+        if (conversionFileEl.value.trim()) {
+          conversionFileManuallyEdited = true;
+        }
+      });
+    }
 
     // Attach listeners to Root Path and Project Name fields
     if (rootPathEl) {
@@ -912,6 +978,7 @@
       bidsPathManuallyEdited = false;
       calibrationPathManuallyEdited = false;
       crosstalkPathManuallyEdited = false;
+      conversionFileManuallyEdited = false;
       const result = await _originalPopulateFormFromYaml(configSource);
       // After populating form, trigger automatic path update since direct value assignment
       // doesn't fire input events
