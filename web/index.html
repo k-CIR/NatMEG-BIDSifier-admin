@@ -255,6 +255,13 @@
               <input id="editorSearchInput" placeholder="🔍 Search all fields..." class="input-wide-compact" style="min-width:260px">
               <!-- hidden file picker for loading a local TSV into the editor -->
               <input id="loadTableInput" type="file" accept=".tsv,.txt" style="display:none" aria-hidden="true">
+              <select id="statusFilterSelect" class="input-sm" aria-label="Filter status" style="min-width:100px;">
+                <option value="">All Status</option>
+                <option value="check">check</option>
+                <option value="run">run</option>
+                <option value="processed">processed</option>
+                <option value="skip">skip</option>
+              </select>
               <select id="subjectFilterSelect" class="input-sm" aria-label="Filter subjects" style="min-width:120px;">
                 <option value="">All Subjects</option>
               </select>

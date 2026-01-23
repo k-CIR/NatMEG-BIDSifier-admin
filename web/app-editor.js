@@ -311,7 +311,6 @@
     // when present; otherwise we will add column placeholders so the editor can
     // show a consistent fixed column set for conversion tables.
     const desiredCols = [
-      { key: 'session_from', fallbacks: ['session_from','scan_date','scan date','date'] },
       { key: 'status', fallbacks: ['status'] },
       { key: 'participant_to', fallbacks: ['participant_to','subject_to','participant'] },
       { key: 'session_to', fallbacks: ['session_to'] },
@@ -414,7 +413,7 @@
     const searchEl = document.getElementById('tableSearch') || document.getElementById('editorSearchInput');
     if (searchEl) searchEl.oninput = () => renderTableFromData();
     // wire filter selects if present
-    ['subjectFilterSelect','sessionFilterSelect','taskFilterSelect','acquisitionFilterSelect'].forEach(id => { const el = document.getElementById(id); if (el) el.onchange = () => renderTableFromData(); });
+    ['subjectFilterSelect','sessionFilterSelect','statusFilterSelect','taskFilterSelect','acquisitionFilterSelect'].forEach(id => { const el = document.getElementById(id); if (el) el.onchange = () => renderTableFromData(); });
     if (document.getElementById('findReplaceBtn')) document.getElementById('findReplaceBtn').onclick = findReplaceInTable;
     if (document.getElementById('addRowBtn')) document.getElementById('addRowBtn').onclick = () => addRowToTable();
     if (document.getElementById('deleteRowsBtn')) document.getElementById('deleteRowsBtn').onclick = () => deleteSelectedRows();
@@ -451,6 +450,7 @@
     // filter selects (possible values)
     const subjectFilter = (document.getElementById('subjectFilterSelect')?.value || '').toLowerCase().trim();
     const sessionFilter = (document.getElementById('sessionFilterSelect')?.value || '').toLowerCase().trim();
+    const statusFilter = (document.getElementById('statusFilterSelect')?.value || '').toLowerCase().trim();
     const taskFilter = (document.getElementById('taskFilterSelect')?.value || '').toLowerCase().trim();
     const acqFilter = (document.getElementById('acquisitionFilterSelect')?.value || '').toLowerCase().trim();
     const { headers, rows } = currentEditorData;
@@ -468,6 +468,7 @@
       const getVal = (name) => { const idx = lowerHeaders.indexOf(name); return idx >= 0 ? String(r[idx] || '').toLowerCase() : ''; };
       if (subjectFilter) { const v = getVal('participant_to'); if (v !== subjectFilter) return ''; }
       if (sessionFilter) { const v = getVal('session_to'); if (v !== sessionFilter) return ''; }
+      if (statusFilter) { const v = getVal('status'); if (v !== statusFilter) return ''; }
       if (taskFilter) {
         const v = getVal('task');
         // read config tasks from the config form and compare case-insensitively
@@ -856,6 +857,14 @@
 
     // Recompute when an AppConfig module notifies listeners that a config was loaded
     try { window.addEventListener && window.addEventListener('AppConfigChanged', computeAndFillSaveTablePath); } catch(e){}
+
+    // Wire filter selects to trigger re-render when changed
+    ['statusFilterSelect','subjectFilterSelect','sessionFilterSelect','taskFilterSelect','acquisitionFilterSelect'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('change', () => { if (typeof renderTableFromData === 'function') renderTableFromData(); });
+      }
+    });
 
     // keep the suggestion up-to-date when the config fields change
     ['config_root_path','config_project_name','config_bids_path','config_conversion_file'].forEach(id => {
