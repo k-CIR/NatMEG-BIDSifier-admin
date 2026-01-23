@@ -373,6 +373,18 @@ def _safe_path(path: str) -> Optional[str]:
         except ValueError:
             pass
         
+        # Check if under /data/projects/ (shared project directories)
+        # Access is controlled by filesystem permissions - user must have read/write access
+        projects_dir = '/data/projects'
+        try:
+            if os.path.commonpath([projects_dir, abs_candidate]) == projects_dir:
+                # Check accessibility (relies on filesystem permissions)
+                if not _is_accessible(abs_candidate):
+                    return None
+                return abs_candidate
+        except ValueError:
+            pass
+        
         # Not in any allowed location
         return None
 
@@ -643,6 +655,10 @@ async def create_job(req: JobRequest):
 
                 if bids_path:
                     bids_path = os.path.expanduser(str(bids_path))
+                    # bidsify.py saves to dirname(BIDS)/logs/ - this is the primary location
+                    candidates.append(os.path.join(os.path.dirname(bids_path), 'logs', conv_name))
+                    candidates.append(os.path.join(os.path.dirname(bids_path), 'logs', 'bids_results.json'))
+                    # Also check inside BIDS directory as fallback
                     candidates.append(os.path.join(bids_path, 'logs', conv_name))
                     candidates.append(os.path.join(bids_path, 'conversion_logs', conv_name))
                     candidates.append(os.path.join(bids_path, conv_name))

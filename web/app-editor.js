@@ -180,10 +180,34 @@
 
   async function loadArtifact(jobId, index) {
     try {
+      // First get the artifact path from the job artifacts list
+      const artifactsResp = await fetch(`/api/jobs/${jobId}/artifacts`);
+      let artifactPath = null;
+      if (artifactsResp.ok) {
+        const artifactsData = await artifactsResp.json();
+        const artifacts = artifactsData.artifacts || [];
+        if (index >= 0 && index < artifacts.length) {
+          artifactPath = artifacts[index];
+        }
+      }
+      
+      // Download the artifact content
       const resp = await fetch(`/api/jobs/${jobId}/artifact?index=${index}`);
       if (!resp.ok) throw new Error('Failed to download artifact');
       const text = await resp.text();
-      openTableEditor(text, `${jobId}-artifact-${index}.tsv`);
+      
+      // Use the actual artifact path as the filename if available
+      const filename = artifactPath ? artifactPath.split('/').pop() : `${jobId}-artifact-${index}.tsv`;
+      openTableEditor(text, filename);
+      
+      // Populate the saveTablePath with the actual artifact path for easy save-back
+      if (artifactPath) {
+        const savePathEl = document.getElementById('saveTablePath');
+        if (savePathEl) {
+          savePathEl.value = artifactPath;
+          console.log('[AppEditor] Set saveTablePath from artifact:', artifactPath);
+        }
+      }
     } catch (err) {
       alert('Error loading artifact: ' + err.message);
     }
@@ -717,11 +741,56 @@
     } catch (err) { alert('Save failed: ' + err.message); }
   }
 
-  async function saveTableCanonical(){ const cfg = document.getElementById('configText')?.value || ''; let detected = null; try { const lines = cfg.split('\n'); let inProj = false; let root=''; let name=''; for (let ln of lines) { const t = ln.trim(); if (!inProj && t.startsWith('Project:')) { inProj = true; continue; } if (inProj) { if (/^[A-Za-z0-9_].*:/.test(t)) { break; } const mRoot = t.match(/^Root:\s*(.*)/); if (mRoot) root = mRoot[1].trim(); const mName = t.match(/^Name:\s*(.*)/); if (mName) name = mName[1].trim(); } } if (root && name) detected = (root + '/' + name + '/logs/bids_conversion.tsv'); } catch (e) {}
+  async function saveTableCanonical(){
+    // Try to detect the correct save path from config fields or raw YAML
+    let detected = null;
+    
+    // First try form fields (more reliable)
+    const root = (document.getElementById('config_root_path')?.value || '').trim();
+    const proj = (document.getElementById('config_project_name')?.value || '').trim();
+    const bids = (document.getElementById('config_bids_path')?.value || '').trim();
+    const conv = (document.getElementById('config_conversion_file')?.value || 'bids_conversion.tsv').trim() || 'bids_conversion.tsv';
+    
+    // Check if conv is already a full path
+    if (conv.startsWith('/') || conv.startsWith('~')) {
+      detected = conv;
+    } else if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))) {
+      // bidsify.py saves to: dirname(BIDS)/logs/<conv>
+      const bidsNorm = bids.replace(/\/+$/, '');
+      const bidsDir = bidsNorm.substring(0, bidsNorm.lastIndexOf('/')) || bidsNorm;
+      detected = `${bidsDir}/logs/${conv}`;
+    } else if (root && proj) {
+      detected = `${root.replace(/\/+$/,'')}/${proj.replace(/\/+$/,'')}/logs/${conv}`;
+    }
+    
+    // Fallback: try parsing raw YAML if form fields didn't work
     if (!detected) {
-      const confirmSkip = confirm('Could not detect Project Root/Name in config. Do you want to enter a custom save path instead?');
-      if (!confirmSkip) return; const p = prompt('Enter server path to save to', '/path/to/logs/bids_conversion.tsv'); if (!p) return; document.getElementById('saveTablePath').value = p;
-    } else { document.getElementById('saveTablePath').value = detected.replace(/^\/+/,''); }
+      try {
+        const cfg = document.getElementById('configText')?.value || '';
+        const lines = cfg.split('\n');
+        let inProj = false; let yamlRoot=''; let yamlName='';
+        for (let ln of lines) {
+          const t = ln.trim();
+          if (!inProj && t.startsWith('Project:')) { inProj = true; continue; }
+          if (inProj) {
+            if (/^[A-Za-z0-9_].*:/.test(t)) { break; }
+            const mRoot = t.match(/^Root:\s*(.*)/); if (mRoot) yamlRoot = mRoot[1].trim();
+            const mName = t.match(/^Name:\s*(.*)/); if (mName) yamlName = mName[1].trim();
+          }
+        }
+        if (yamlRoot && yamlName) detected = `${yamlRoot}/${yamlName}/logs/${conv}`;
+      } catch (e) {}
+    }
+    
+    if (!detected) {
+      const confirmSkip = confirm('Could not detect Project Root/Name or BIDS path in config. Do you want to enter a custom save path instead?');
+      if (!confirmSkip) return;
+      const p = prompt('Enter server path to save to', '/path/to/logs/bids_conversion.tsv');
+      if (!p) return;
+      document.getElementById('saveTablePath').value = p;
+    } else {
+      document.getElementById('saveTablePath').value = detected.replace(/^\/+/,'');
+    }
     // trigger save
     if (document.getElementById('saveTableServer')) document.getElementById('saveTableServer').click();
   }
@@ -760,8 +829,16 @@
           candidate = conv;
         } else {
           // It's a relative filename, build the full path
-          if (root && proj) candidate = `${root.replace(/\/+$/,'')}/${proj.replace(/\/+$/,'')}/logs/${conv}`;
-          else if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))) candidate = `${bids.replace(/\/+$/,'')}/conversion_logs/${conv}`;
+          // bidsify.py saves to: dirname(BIDS)/logs/<conv> (see bidsify.py line ~994)
+          if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))) {
+            // Get dirname of BIDS path and append /logs/<conv>
+            const bidsNorm = bids.replace(/\/+$/, '');
+            const bidsDir = bidsNorm.substring(0, bidsNorm.lastIndexOf('/')) || bidsNorm;
+            candidate = `${bidsDir}/logs/${conv}`;
+          } else if (root && proj) {
+            // Fallback: assume BIDS is at root/proj/BIDS, so logs at root/proj/logs
+            candidate = `${root.replace(/\/+$/,'')}/${proj.replace(/\/+$/,'')}/logs/${conv}`;
+          }
         }
         
         // Only auto-fill when the input is empty and the candidate path is different so we don't clobber a user-provided path or duplicate the same path.
