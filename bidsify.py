@@ -830,7 +830,7 @@ def bids_path_from_rawname(file_name, date_session, config, pmap=None):
     
     return bids_path, info_dict
 
-def generate_new_conversion_table(config: dict):
+def generate_new_conversion_table(config: dict, existing_table: pd.DataFrame = None):
     
     """
     For each participant and session within MEG folder, generate conversion table entries.
@@ -849,6 +849,14 @@ def generate_new_conversion_table(config: dict):
     
     processing_modalities = ['triux', 'hedscan']
     
+    # Files already processed or skipped
+    processed_files = set()
+    if isinstance(existing_table, pd.DataFrame) and not existing_table.empty:
+        processed_files = set(
+            existing_table.loc[(existing_table['status'] == 'processed') |
+                                (existing_table['status'] == 'skip')]
+            .apply(lambda row: f"{row['raw_path']}/{row['raw_name']}", axis=1)
+        )
     # Load participant mapping if available
     pmap = None
     if participant_mapping:
@@ -863,6 +871,9 @@ def generate_new_conversion_table(config: dict):
         """Process a single file entry - designed for parallel execution"""
         participant, date_session, acquisition, file = job
         full_file_name = os.path.join(path_raw, participant, date_session, acquisition, file)
+        
+        if full_file_name in processed_files:
+            return None  # Skip already processed files
         
         bids_path, info_dict = bids_path_from_rawname(full_file_name, date_session, config, pmap)
         
@@ -894,19 +905,8 @@ def generate_new_conversion_table(config: dict):
             event_files = glob(f'{task}_event_id.json', root_dir=f'{path_BIDS}/..')
             if event_files:
                 event_file = event_files[0]
-        
-        # Check if BIDS file already exists
-        # bids_splits = get_split_file_parts(bids_path)
-        
-        if (find_matching_paths(bids_path.directory,
-                                tasks=task,
-                                acquisitions=acquisition,
-                                suffixes=None if suffix == '' else suffix, 
-                                descriptions=None if desc == '' else desc,
-                                extensions=None if extension == '' else extension)):
-            status = 'processed'
-        else:
-            status = 'run'
+
+        status = 'run'
 
         if task not in tasks + ['Noise']:
             status = 'check'
@@ -1088,7 +1088,7 @@ def update_conversion_table(config, conversion_file=None) -> pd.DataFrame:
     if not conversion_file:
         conversion_file = existing_conversion_file
     
-    results = list(generate_new_conversion_table(config))
+    results = list(generate_new_conversion_table(config, existing_conversion_table))
     new_conversion_table = pd.DataFrame(results)
     
     # If no new results, return existing table
@@ -1108,17 +1108,35 @@ def update_conversion_table(config, conversion_file=None) -> pd.DataFrame:
                 bids_files = glob('*'.join(row['bids_name'].split('_')), root_dir=row['bids_path'])
                 if not bids_files and not row['status'] == 'check':
                     existing_conversion_table.loc[i, 'status'] = 'run'
+                for bids_file in bids_files:
+                    bids_path = get_bids_path_from_fname(os.path.join(row['bids_path'], bids_file))
+                    if (find_matching_paths(
+                        bids_path.directory,
+                        tasks=bids_path.task,
+                        acquisitions=bids_path.acquisition,
+                        suffixes=None if bids_path.suffix is None else bids_path.suffix,
+                        descriptions=None if bids_path.description is None else bids_path.description,
+                        extensions=None if bids_path.extension is None else bids_path.extension
+                    )):
+                        existing_conversion_table.loc[i, 'status'] = 'processed'
+                        break
     
     # Extract files not in existing conversion table
+    # Merge new_conversion_table into existing_conversion_table based on 'raw_path' and 'raw_name'
+    # For other columns, keep values from existing_conversion_table if present
     if existing_conversion_table.empty:
         # If existing table is empty, all new entries are the diff
         diff = new_conversion_table
     else:
-        diff = pd.concat([existing_conversion_table, new_conversion_table]).drop_duplicates(
-            subset=['raw_path', 'raw_name'],
-            keep=False,
-        ).reset_index(drop=True)
-    
+        # Find new rows not present in existing table (by raw_path and raw_name)
+        merged = new_conversion_table.merge(
+            existing_conversion_table[['raw_path', 'raw_name']],
+            on=['raw_path', 'raw_name'],
+            how='left',
+            indicator=True
+        )
+        diff = merged[merged['_merge'] == 'left_only']
+        diff = diff.drop(columns=['_merge']).reset_index(drop=True)
     if diff.empty:
         print("No new files to add to conversion table.")
         return existing_conversion_table, conversion_file
@@ -1195,6 +1213,7 @@ def bidsify(config: dict):
     
     os.makedirs(logPath, exist_ok=True)
     df, conversion_file = load_conversion_table(config)
+    df, conversion_file = update_conversion_table(config, conversion_file)
     
     
     if df.empty or not conversion_file:
@@ -1581,7 +1600,6 @@ def args_parser():
     args = parser.parse_args()
     return args
 
-
 def main(config:str=None):
     """
     Main entry point for BIDS conversion pipeline.
@@ -1615,10 +1633,12 @@ def main(config:str=None):
         if args.config:
             config_file = args.config
         else:
-            config_file = askForConfig()
+            print('Use --config to specify a configuration file')
+            sys.exit(1)
         
         if config_file:
             config = get_parameters(config_file)
+            
         
         else:
             print('No configuration file selected')
