@@ -36,7 +36,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # User home directory for all runtime files (temp configs, job logs, etc.)
 USER_HOME = os.path.expanduser('~')
-USER_RUNTIME_DIR = os.path.join(USER_HOME, '.natmeg')
+USER_RUNTIME_DIR = os.path.join(USER_HOME, '.connect_logs')
 os.makedirs(USER_RUNTIME_DIR, exist_ok=True)
 USER_TEMP_DIR = os.path.join(USER_RUNTIME_DIR, 'temp')
 os.makedirs(USER_TEMP_DIR, exist_ok=True)

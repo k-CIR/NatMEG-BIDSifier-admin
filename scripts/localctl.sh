@@ -5,9 +5,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PIDFILE="$REPO_ROOT/.tunnel.pid"
-PORTFILE="$REPO_ROOT/.tunnel.port"
-REPOFILE="$REPO_ROOT/.tunnel.repo"
+USER_RUNTIME_DIR="$REPO_ROOT/.connect_logs"
+mkdir -p "$USER_RUNTIME_DIR/connect"
+PIDFILE="$USER_RUNTIME_DIR/.tunnel.pid"
+PORTFILE="$USER_RUNTIME_DIR/.tunnel.port"
+REPOFILE="$USER_RUNTIME_DIR/.tunnel.repo"
 
 LOCAL_PORT=8080
 REMOTE_PORT=18080

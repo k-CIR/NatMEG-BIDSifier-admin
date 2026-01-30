@@ -70,6 +70,8 @@ CONVERSION_TABLE_FIELDS = {
     'event_id': 'Associated event file for task'
 }
 
+DERIVATIVES_SUBFOLDER = 'derivatives/preprocessed-meg'
+
 ###############################################################################
 # Utility functions
 ###############################################################################
@@ -418,7 +420,7 @@ def create_participants_files(config: dict):
 def create_proc_description(config: dict):
     
     bids_root = config['BIDS']
-    proc_root = config['BIDS'] + '/derivatives/preprocessed'    
+    proc_root = config['BIDS'] + DERIVATIVES_SUBFOLDER    
     os.makedirs(proc_root, exist_ok=True)
     
     proc_mapping = {
@@ -493,7 +495,7 @@ def update_sidecars(config: dict):
         - Adds metadata fields to comply with BIDS specification
     """
     bids_root = config['BIDS']
-    proc_root = join(bids_root, 'derivatives', 'preprocessed')
+    proc_root = join(bids_root, DERIVATIVES_SUBFOLDER)
     # Find all meg files in the BIDS folder, ignore EEG for now
     bids_paths = find_matching_paths(bids_root,
                                      suffixes='meg',
@@ -761,7 +763,7 @@ def bids_path_from_rawname(file_name, date_session, config, pmap=None):
     # Check if preprocessed and add derivatives path if so
     proc = '+'.join(info_dict.get('processing', []))
     if proc:
-        bids_root = join(bids_root, 'derivatives', 'preprocessed')
+        bids_root = join(bids_root, DERIVATIVES_SUBFOLDER)
     
     # Build processing info
     split = info_dict.get('split')

@@ -38,11 +38,13 @@ EOF
 if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then usage; fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+USER_RUNTIME_DIR="$REPO_ROOT/.connect_logs"
+mkdir -p "$USER_RUNTIME_DIR/connect"
 # Defaults (can be overridden via flags or environment)
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8080}"
-PIDFILE="$REPO_ROOT/.server.${PORT}.pid"
-LOGFILE="$HOME/natmeg-server-${PORT}.log"
+PIDFILE="$USER_RUNTIME_DIR/.server.${PORT}.pid"
+LOGFILE="$USER_RUNTIME_DIR/natmeg-server-${PORT}.log"
 # Prefer the repo venv python, but fall back to system python
 PY="$REPO_ROOT/.venv/bin/python"
 if [ ! -x "$PY" ]; then
