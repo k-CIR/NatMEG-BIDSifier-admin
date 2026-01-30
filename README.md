@@ -24,7 +24,7 @@ chmod +x localctl.sh
 ```
 4. Connect and run
 ```bash
-/scripts/localctl.sh start <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
+./localctl.sh start <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
 ```
 
 5. Script automatically:
