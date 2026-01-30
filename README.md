@@ -17,16 +17,22 @@ This is a toolkit for converting MEG/EEG data to BIDS (Brain Imaging Data Struct
 
 1. Download [/scripts/localctl.sh](scripts/localctl.sh) to your laptop
 2. Run localctl.sh with your server details:
+3. Make executable
+
+```bash
+chmod +x localctl.sh
+```
+4. Connect and run
 ```bash
 /scripts/localctl.sh start <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
 ```
 
-3. Script automatically:
+5. Script automatically:
    - Starts the remote server with an available port
    - Checks server health via `/api/ping`
    - Creates an SSH tunnel to your laptop
    - Opens browser to `http://localhost:8080` (or auto-selected local port)
-4. Edit configuration and run BIDS conversion jobs via the web UI
+6. Edit configuration and run BIDS conversion jobs via the web UI
 
 
 
