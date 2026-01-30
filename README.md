@@ -12,6 +12,31 @@ This is a toolkit for converting MEG/EEG data to BIDS (Brain Imaging Data Struct
 - Web-based user interface for configuration and monitoring
 - Remote job submission and real-time log streaming
 
+
+## Quick start, connect and run from your laptop
+
+1. Download [/scripts/localctl.sh](scripts/localctl.sh) to your laptop
+2. Run localctl.sh with your server details:
+```bash
+/scripts/localctl.sh start <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
+```
+
+3. Script automatically:
+   - Starts the remote server with an available port
+   - Checks server health via `/api/ping`
+   - Creates an SSH tunnel to your laptop
+   - Opens browser to `http://localhost:8080` (or auto-selected local port)
+4. Edit configuration and run BIDS conversion jobs via the web UI
+
+
+
+
+
+
+
+
+
+
 ## Installation (on server)
 
 ### Prerequisites
@@ -45,23 +70,19 @@ pip install -r requirements.txt
 python bidsify.py --config config.yml [--analyse][--run][--report]
 ```
 
-### Web application (FastAPI)
-
-This repository includes a FastAPI web application that provides a user-friendly interface for configuring and running BIDS conversions locally or remotely.
-
-**Typical workflow (from your laptop):**
-
-1. Run localctl.sh with your server details:
+### Web UI with remote access (recommended)
+1. Download [/scripts/localctl.sh](scripts/localctl.sh) to your laptop
+2. Run localctl.sh with your server details:
 ```bash
-./scripts/localctl.sh start <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
+/scripts/localctl.sh start <user>@compute.kcir.se /data/users/natmeg/scripts/NatMEG-BIDSifier
 ```
-2. Script automatically:
+
+3. Script automatically:
    - Starts the remote server with an available port
    - Checks server health via `/api/ping`
    - Creates an SSH tunnel to your laptop
    - Opens browser to `http://localhost:8080` (or auto-selected local port)
-3. Edit configuration and run BIDS conversion jobs via the web UI
-
+4. Edit configuration and run BIDS conversion jobs via the web UI
 
 #### Architecture highlights
 - **FastAPI server** (`server/app.py`) runs `bidsify.py` for you and exposes REST + WebSocket endpoints

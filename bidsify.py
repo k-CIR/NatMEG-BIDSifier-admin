@@ -75,6 +75,46 @@ DERIVATIVES_SUBFOLDER = 'derivatives/preprocessed-meg'
 ###############################################################################
 # Utility functions
 ###############################################################################
+
+def setLogPath(config: dict = None, LogPath: str = None):
+    """_summary_
+    
+    Check config and set preferred logging location.
+    LogPath overrides config setting if provided.
+
+    Args:
+        log_path (str): _description_
+    """
+    
+    if LogPath:
+        log_path = LogPath
+        os.makedirs(log_path, exist_ok=True)
+        return log_path
+
+    # 1. Log path under project
+    project_name = config.get('Name', {}) or config.get('name', {}) or ''
+    root = config.get('Root', {}) or config.get('root', '') or ''
+    
+    # 1a. Check project root and name to not duplicate project name
+    project_root = join(root, project_name) if project_name != basename(root) else root
+    
+    log_path = join(project_root, 'logs')
+    
+    # 2. if not log_path exists try via BIDS path
+    if not log_path or not exists(log_path):
+        path_BIDS = config.get('BIDS') or config.get('bids') or config.get('BIDSPath') or config.get('bids_path') or None    
+        log_path = join(dirname(path_BIDS), 'logs') if path_BIDS else None
+        
+        if log_path and exists(log_path):
+            # As a last resort, use ./logs in CWD and warn
+            log_path = './logs'
+            print(f"[WARN] Log path missing; falling back to log path: {log_path}")
+            os.makedirs(log_path, exist_ok=True)
+            return log_path
+
+    os.makedirs(log_path, exist_ok=True)
+    return log_path
+
 def file_contains(file: str, pattern: list):
     """
     Check if filename contains any of the specified patterns using regex.
@@ -991,30 +1031,17 @@ def load_conversion_table(config: dict):
         - Prints table loading information
     """
     # Load the most recent conversion table
-    # Prefer capitalized keys but accept common alternative keys as fallback
-    path_BIDS = config.get('BIDS') or config.get('bids') or config.get('BIDSPath') or config.get('bids_path') or None
-    logPath = join(dirname(path_BIDS), 'logs') if path_BIDS else None
+    logPath = setLogPath(config)
+    
     
     conversion_file = config.get('Conversion_file', None)
+    conversion_file = os.path.join(logPath, conversion_file)
+        
     overwrite = config.get('Overwrite_conversion', False)
     
-    if not logPath:
-        # Attempt to infer logs path from project root/name settings
-        project_root = join(config.get('Root', '') or '', config.get('Name', '') or '')
-        if project_root and exists(project_root):
-            logPath = join(project_root, 'logs')
-        else:
-            # As a last resort, use ./logs in CWD and warn
-            logPath = './logs'
-        print(f"[WARN] BIDS path missing; falling back to log path: {logPath}")
-    
-    conversion_logs_path = logPath
-    if not os.path.exists(conversion_logs_path):
+    if not os.path.exists(dirname(conversion_file)):
         os.makedirs(conversion_logs_path, exist_ok=True)
         print("No conversion logs directory found. Created new")
-    
-    if conversion_file:
-        conversion_file = os.path.join(conversion_logs_path, conversion_file)
     
     if conversion_file and exists(conversion_file) and not overwrite:
         # Check if file is not empty before reading
@@ -1072,7 +1099,7 @@ def load_conversion_table(config: dict):
         else:
             raise FileNotFoundError("No conversion files found after generation")
 
-def update_conversion_table(config, conversion_file=None) -> pd.DataFrame:
+def update_conversion_table(config, conversion_file=None):
     """
     Update conversion table to add new files not currently tracked.
     
@@ -1093,10 +1120,12 @@ def update_conversion_table(config, conversion_file=None) -> pd.DataFrame:
     results = list(generate_new_conversion_table(config, existing_conversion_table))
     new_conversion_table = pd.DataFrame(results)
     
+    run_conversion = True
     # If no new results, return existing table
     if new_conversion_table.empty:
+        run_conversion = False
         print("No files found to add to conversion table.")
-        return existing_conversion_table, conversion_file
+        return existing_conversion_table, conversion_file, run_conversion
     
     # ignore split files
     # if 'split' in new_conversion_table.columns:
@@ -1140,8 +1169,9 @@ def update_conversion_table(config, conversion_file=None) -> pd.DataFrame:
         diff = merged[merged['_merge'] == 'left_only']
         diff = diff.drop(columns=['_merge']).reset_index(drop=True)
     if diff.empty:
+        run_conversion = False
         print("No new files to add to conversion table.")
-        return existing_conversion_table, conversion_file
+        return existing_conversion_table, conversion_file, run_conversion
     
     else:
         # Set status to 'run' only for processed/skip files, preserve 'check' status
@@ -1154,7 +1184,7 @@ def update_conversion_table(config, conversion_file=None) -> pd.DataFrame:
         
         print(f"Adding {len(diff)} new files to conversion table.")
         
-        return updated_table, conversion_file
+        return updated_table, conversion_file, run_conversion
 
 def bidsify(config: dict):
     """
@@ -1196,8 +1226,7 @@ def bidsify(config: dict):
     Raises:
         SystemExit: If task validation fails (unknown tasks found)
     """
-    
-    # TODO: parallelize the conversion
+
     ts = datetime.now().strftime('%Y%m%d')
     path_project = join(config.get('Root', ''), config.get('Name', ''))
     local_path = config.get('Raw', '')
@@ -1207,19 +1236,16 @@ def bidsify(config: dict):
     overwrite = config.get('overwrite', False)
     logfile = config.get('Logfile', '')
     participant_mapping = join(path_project, config.get('Participants_mapping_file', ''))
-    logPath = join(path_project, 'logs')
+    logPath = setLogPath(config)
 
-    # Pipeline tracking removed - using simple JSON logging
+    df, conversion_file, run_conversion = update_conversion_table(config, conversion_file)
     
-    # Ensure log directory exists and initialize BIDS report if needed
-    
-    os.makedirs(logPath, exist_ok=True)
-    df, conversion_file = load_conversion_table(config)
-    df, conversion_file = update_conversion_table(config, conversion_file)
-    
+    if not run_conversion or overwrite:
+        print("No new files to convert. Exiting bidsify process.")
+        return
     
     if df.empty or not conversion_file:
-        print("No files to process in conversion table.")
+        print("Conversion table empty or not defined")
         return
 
     df = df.where(pd.notnull(df) & (df != ''), None)
@@ -1419,17 +1445,9 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
     Returns:
         int: Number of entries processed
     """
-    project_root = join(config.get('Root', ''), config.get('Name', ''))
     bids_root = config.get('BIDS', '')
-    logPath = join(project_root, 'logs')
-    report_file = f'{logPath}/bids_results.json'
-
-    # Ensure logs directory exists
-    try:
-        os.makedirs(logPath, exist_ok=True)
-    except Exception as e:
-        print(f"[ERROR] Could not create logs directory: {logPath}\n{e}")
-        return
+    logPath = setLogPath(config)
+    report_file = os.path.join(logPath, 'bids_results.json')
     
     # Load existing report if it exists
     existing_report = []
@@ -1559,9 +1577,6 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
     except Exception as e:
         print(f"[ERROR] Failed to write BIDS results report to {report_file}: {e}")
 
-    # Log summary
-    logfile = config.get('Logfile', 'bidsify.log')
-    logPath = join(config.get('Root', ''), config.get('Name', ''), 'logs')
     print(f"BIDS report updated: {len(new_entries)} new entries added to existing {len(existing_report)} entries")
 
     return len(new_entries)   
@@ -1650,12 +1665,10 @@ def main(config:str=None):
         # If config is a string, assume it's a path to a config file
         config = get_parameters(config)
     
-    # Check for electron mode
-    
+    # Only generate conversion table, don't convert files
     if args.analyse:
-        # Dry-run mode: only generate conversion table, don't convert files
         print("Generating conversion table only")
-        conversion_table, conversion_file = update_conversion_table(config)
+        conversion_table, conversion_file, run_conversion = update_conversion_table(config)
         conversion_table.to_csv(conversion_file, sep='\t', index=False)
         print(f"Conversion table saved to: {conversion_file}")
     
@@ -1670,10 +1683,7 @@ def main(config:str=None):
         # Generate report only
         print("Generating BIDS conversion report")
         update_bids_report(load_conversion_table(config)[0], config)
-
     return True
-    
 
 if __name__ == "__main__":
-    
     main()

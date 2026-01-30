@@ -96,7 +96,7 @@ if [[ -z "$SSH_TARGET" ]]; then
 fi
 
 if [[ -z "$REMOTE_REPO" ]]; then
-  REMOTE_REPO="$REPO_ROOT"
+  REMOTE_REPO="/data/users/natmeg/scripts/NatMEG-BIDSifier"
 fi
 
 # If a previous run recorded a remote port and user didn't override, reuse it for status/stop
