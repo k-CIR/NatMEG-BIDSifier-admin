@@ -18,7 +18,7 @@ AUTO_PORT=0
 
 usage(){
   cat <<EOF
-Usage: $0 [start|stop|status|list|cleanup] [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh]
+Usage: $0 [start|stop|status|list|cleanup] [user@host] [remote_repo] [--local-port N] [--remote-port N] [--autossh] [--all]
 
 Commands:
   start   - Start remote server and create tunnel (default)
@@ -31,6 +31,7 @@ Flags:
   --local-port N    - Port on your laptop to listen on (defaults to 8080, auto-picks if busy)
   --remote-port N   - Remote server loopback port (disables auto-port, uses specified port)
   --autossh         - Use autossh for auto-reconnect
+  --all             - With cleanup: kill all remote uvicorn processes and clean local files
 
 Simple helper that:
   - runs ./scripts/serverctl.sh start on the remote host
@@ -58,6 +59,7 @@ fi
 # parse args and flags
 POSITIONAL=()
 REMOTE_PORT_SET=0
+ALL_FLAG=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local-port)
@@ -66,6 +68,8 @@ while [[ $# -gt 0 ]]; do
       REMOTE_PORT="$2"; REMOTE_PORT_SET=1; AUTO_PORT=0; shift 2;;
     --autossh)
       AUTOSSH=1; shift;;
+    --all)
+      ALL_FLAG=1; shift;;
     -*|--*)
       echo "Unknown flag: $1"; usage;;
     *)
@@ -333,18 +337,54 @@ fi
 
 if [[ "$cmd" == "cleanup" ]]; then
   echo "-- cleanup server by port --"
+  if [[ $ALL_FLAG -eq 1 ]]; then
+    echo "Killing all remote uvicorn server processes and cleaning up local files..."
+    if [[ -z "$SSH_TARGET" ]]; then
+      read -rp "Enter remote ssh target (user@host): " SSH_TARGET
+    fi
+    if [[ -z "$REMOTE_REPO" ]]; then
+      read -rp "Enter remote repo path: " REMOTE_REPO
+    fi
+    
+    # Find all running uvicorn processes owned by current user and extract their ports
+    echo "Finding all running uvicorn servers for current user..."
+    PORTS=$(run_ssh_cmd "ps aux | grep \"\$(whoami)\" | grep '[u]vicorn.*server.app:app' | grep -oE '\-\-port\s+[0-9]+' | awk '{print \$NF}' | sort -u" || echo "")
+    
+    if [[ -z "$PORTS" ]]; then
+      echo "No uvicorn processes found running for current user."
+    else
+      echo "Found uvicorn processes owned by current user on ports: $PORTS"
+      # Stop each port - kill by finding the PID and killing it directly
+      while IFS= read -r port; do
+        if [[ -n "$port" ]]; then
+          echo "Killing process on port $port..."
+          # Get PID of process listening on this port and kill it
+          PID=$(run_ssh_cmd "ps aux | grep \"\$(whoami)\" | grep \"port $port\" | grep -v grep | awk '{print \$2}'" 2>/dev/null || echo "")
+          if [[ -n "$PID" ]]; then
+            run_ssh_cmd "kill -9 $PID" 2>/dev/null && echo "  Killed PID $PID" || echo "  Failed to kill PID $PID"
+          else
+            echo "  Could not find PID for port $port"
+          fi
+          sleep 0.2
+        fi
+      done <<< "$PORTS"
+    fi
+    
+    # Remove all local tunnel files
+    rm -f "$PIDFILE" "$PORTFILE" "$REPOFILE"
+    echo "Local tunnel files removed."
+    exit 0
+  fi
   if [[ -z "$SSH_TARGET" ]]; then
     read -rp "Enter remote ssh target (user@host): " SSH_TARGET
   fi
   if [[ -z "$REMOTE_REPO" ]]; then
     read -rp "Enter remote repo path: " REMOTE_REPO
   fi
-  
   read -rp "Enter port number to stop: " PORT_TO_STOP
   if [[ ! "$PORT_TO_STOP" =~ ^[0-9]+$ ]]; then
     echo "Invalid port number"; exit 1
   fi
-  
   echo "Finding and stopping server on port $PORT_TO_STOP..."
   run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh stop --port ${PORT_TO_STOP}" || {
     echo "Failed to stop via serverctl, trying to find process directly..."
