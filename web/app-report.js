@@ -208,7 +208,258 @@
 
   function clearReport(){ updateReportArea('No report yet — run Analyse or Report to generate output'); updateStats({ subjects:0, sessions:0, tasks:0 }); const tr = document.getElementById('reportTree'); if (tr) tr.innerHTML = 'No BIDS results yet'; }
 
-  window.AppReport = { openReportView, updateReportArea, renderJSONPreview, renderTSVPreview, renderHTMLPreview, updateStats, renderTree, clearReport };
+  // Load and render the actual BIDS directory structure as a proper file browser
+  async function loadBIDSDirectory(bidsPath) {
+    const out = document.getElementById('reportTree');
+    if (!out) return;
+    out.innerHTML = '<div style="color: #666; font-size: 13px">Loading BIDS directory...</div>';
+    
+    try {
+      _dbg('loadBIDSDirectory called with path', bidsPath);
+      const resp = await fetch('/api/list-dir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: bidsPath })
+      });
+      
+      if (!resp.ok) {
+        const json = await resp.json();
+        out.innerHTML = `<div style="color: #e74c3c; font-size: 13px">Error loading directory: ${json.error || 'Unknown error'}</div>`;
+        _dbg('loadBIDSDirectory error', json);
+        return;
+      }
+
+      const data = await resp.json();
+      _dbg('loadBIDSDirectory response', data);
+
+      // Build a tree structure from the API response
+      const buildTree = (items, basePath = '') => {
+        const dirs = [];
+        const files = [];
+        
+        items.forEach(item => {
+          // Skip hidden files/folders (starting with a dot)
+          if (item.name.startsWith('.')) return;
+          
+          const node = {
+            name: item.name,
+            path: item.path,
+            is_dir: item.is_dir,
+            size: item.size
+          };
+          
+          if (item.is_dir) {
+            dirs.push(node);
+          } else {
+            files.push(node);
+          }
+        });
+        
+        // Sort directories first, then files
+        return [...dirs, ...files];
+      };
+
+      const renderDirTree = (items, rootName = 'BIDS') => {
+        const container = document.createElement('div');
+        container.style.paddingLeft = '6px';
+
+        const renderItem = (item, level = 0) => {
+          const li = document.createElement('li');
+          li.style.listStyle = 'none';
+          li.style.margin = '2px 0';
+
+          const row = document.createElement('div');
+          row.style.display = 'flex';
+          row.style.alignItems = 'center';
+          row.style.gap = '8px';
+          row.style.paddingLeft = (level * 18) + 'px';
+
+          const toggle = document.createElement('button');
+          toggle.style.border = 'none';
+          toggle.style.background = 'transparent';
+          toggle.style.cursor = 'pointer';
+          toggle.style.padding = '0';
+          toggle.style.fontSize = '12px';
+          toggle.style.width = '16px';
+          toggle.style.textAlign = 'center';
+          
+          const icon = document.createElement('span');
+          icon.style.fontSize = '13px';
+          icon.style.marginRight = '4px';
+
+          const lbl = document.createElement('span');
+          lbl.style.fontSize = '12px';
+          lbl.style.color = '#222';
+          
+          if (item.is_dir) {
+            toggle.textContent = '▶';
+            icon.textContent = '📁';
+            lbl.textContent = item.name;
+            row.appendChild(toggle);
+            row.appendChild(icon);
+            row.appendChild(lbl);
+            li.appendChild(row);
+
+            // Create collapsible content for directories
+            const childContainer = document.createElement('div');
+            childContainer.style.display = 'none';
+            
+            toggle.addEventListener('click', () => {
+              if (childContainer.style.display === 'none') {
+                childContainer.style.display = 'block';
+                toggle.textContent = '▼';
+                // Lazy load children if not already loaded
+                if (childContainer.dataset.loaded !== 'true') {
+                  loadDirChildren(item.path, childContainer, level + 1);
+                  childContainer.dataset.loaded = 'true';
+                }
+              } else {
+                childContainer.style.display = 'none';
+                toggle.textContent = '▶';
+              }
+            });
+            
+            li.appendChild(childContainer);
+          } else {
+            toggle.style.visibility = 'hidden';
+            icon.textContent = '📄';
+            const sizeStr = item.size ? ` (${(item.size / 1024).toFixed(1)} KB)` : '';
+            lbl.textContent = item.name + sizeStr;
+            lbl.style.color = '#555';
+            row.appendChild(toggle);
+            row.appendChild(icon);
+            row.appendChild(lbl);
+            li.appendChild(row);
+          }
+
+          return li;
+        };
+
+        const ul = document.createElement('ul');
+        ul.style.paddingLeft = '0';
+        ul.style.margin = '0';
+        
+        if (items && Array.isArray(items)) {
+          items.forEach(item => ul.appendChild(renderItem(item)));
+        }
+
+        container.appendChild(ul);
+        return container;
+      };
+
+      // Lazy load function for directory children
+      const loadDirChildren = async (path, container, level) => {
+        try {
+          const resp = await fetch('/api/list-dir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+          });
+          
+          if (!resp.ok) {
+            container.innerHTML = '<div style="color: #e74c3c; padding: 8px; font-size: 12px">Error loading</div>';
+            return;
+          }
+
+          const data = await resp.json();
+          const sortedItems = buildTree(data.items);
+          
+          // Render items inline
+          const ul = document.createElement('ul');
+          ul.style.paddingLeft = '0';
+          ul.style.margin = '0';
+          
+          const renderItem = (item) => {
+            const li = document.createElement('li');
+            li.style.listStyle = 'none';
+            li.style.margin = '2px 0';
+
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.gap = '8px';
+            row.style.paddingLeft = (level * 18) + 'px';
+
+            const toggle = document.createElement('button');
+            toggle.style.border = 'none';
+            toggle.style.background = 'transparent';
+            toggle.style.cursor = 'pointer';
+            toggle.style.padding = '0';
+            toggle.style.fontSize = '12px';
+            toggle.style.width = '16px';
+            toggle.style.textAlign = 'center';
+            
+            const icon = document.createElement('span');
+            icon.style.fontSize = '13px';
+            icon.style.marginRight = '4px';
+
+            const lbl = document.createElement('span');
+            lbl.style.fontSize = '12px';
+            lbl.style.color = '#222';
+            
+            if (item.is_dir) {
+              toggle.textContent = '▶';
+              icon.textContent = '📁';
+              lbl.textContent = item.name;
+              row.appendChild(toggle);
+              row.appendChild(icon);
+              row.appendChild(lbl);
+              li.appendChild(row);
+
+              const childContainer = document.createElement('div');
+              childContainer.style.display = 'none';
+              
+              toggle.addEventListener('click', () => {
+                if (childContainer.style.display === 'none') {
+                  childContainer.style.display = 'block';
+                  toggle.textContent = '▼';
+                  if (childContainer.dataset.loaded !== 'true') {
+                    loadDirChildren(item.path, childContainer, level + 1);
+                    childContainer.dataset.loaded = 'true';
+                  }
+                } else {
+                  childContainer.style.display = 'none';
+                  toggle.textContent = '▶';
+                }
+              });
+              
+              li.appendChild(childContainer);
+            } else {
+              toggle.style.visibility = 'hidden';
+              icon.textContent = '📄';
+              const sizeStr = item.size ? ` (${(item.size / 1024).toFixed(1)} KB)` : '';
+              lbl.textContent = item.name + sizeStr;
+              lbl.style.color = '#555';
+              row.appendChild(toggle);
+              row.appendChild(icon);
+              row.appendChild(lbl);
+              li.appendChild(row);
+            }
+
+            return li;
+          };
+          
+          sortedItems.forEach(item => ul.appendChild(renderItem(item)));
+          container.innerHTML = '';
+          container.appendChild(ul);
+        } catch (e) {
+          _dbg('loadDirChildren error', e);
+          container.innerHTML = '<div style="color: #e74c3c; padding: 8px; font-size: 12px">Error loading children</div>';
+        }
+      };
+
+      out.innerHTML = '';
+      const sortedItems = buildTree(data.items);
+      out.appendChild(renderDirTree(sortedItems, data.path));
+
+      _dbg('loadBIDSDirectory rendered successfully');
+    } catch (e) {
+      _dbg('loadBIDSDirectory error', e);
+      out.innerHTML = `<div style="color: #e74c3c; font-size: 13px">Error: ${e.message}</div>`;
+    }
+  }
+
+  window.AppReport = { openReportView, updateReportArea, renderJSONPreview, renderTSVPreview, renderHTMLPreview, updateStats, renderTree, clearReport, loadBIDSDirectory };
 
   // Attempt to probe and load bids_results.json candidates. If candidates
   // parameter is provided (array of paths) we'll try those; otherwise we will
@@ -250,7 +501,8 @@
               const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
               window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
             }
-            try { if (window.AppReport && typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(obj.bids_root || obj.bids_path || obj.root || obj.projectRoot || candidate, obj); } catch(e){}
+            // renderTree is now replaced by loadBIDSDirectory for a proper file browser
+            // try { if (window.AppReport && typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(obj.bids_root || obj.bids_path || obj.root || obj.projectRoot || candidate, obj); } catch(e){}
             try { if (window.AppReport && typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(obj)); } catch(e){}
             if (output) output.textContent += `[AppReport] loaded (cached) ${candidate}\n`;
             delete window._lastReportPayloads[candidate];
@@ -275,9 +527,10 @@
             const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
             window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
           }
-          if (window.AppReport && typeof window.AppReport.renderTree === 'function'){
-            try { window.AppReport.renderTree(obj.bids_root || obj.bids_path || obj.root || obj.projectRoot || candidate, obj); } catch(e){}
-          }
+          // renderTree is now replaced by loadBIDSDirectory for a proper file browser
+          // if (window.AppReport && typeof window.AppReport.renderTree === 'function'){
+          //   try { window.AppReport.renderTree(obj.bids_root || obj.bids_path || obj.root || obj.projectRoot || candidate, obj); } catch(e){}
+          // }
           if (window.AppReport && typeof window.AppReport.updateReportArea === 'function'){
             try { window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(obj)); } catch(e){}
           }
@@ -320,14 +573,16 @@
                 const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
                 window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
               } } catch(e){}
-            try { if (typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(cached.bids_root || cached.bids_path || cached.root || cached.projectRoot || candidate, cached); } catch(e){}
+            // renderTree is now replaced by loadBIDSDirectory for a proper file browser
+            // try { if (typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(cached.bids_root || cached.bids_path || cached.root || cached.projectRoot || candidate, cached); } catch(e){}
             try { if (typeof window.AppReport.updateReportArea === 'function') { _dbg('calling updateReportArea'); window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(cached)); _dbg('updateReportArea done'); } } catch(e){ _dbg('updateReportArea failed', e); }
             // do not auto-open report view on immediate-apply; keep navigation manual
             try { delete window._lastReportPayloads[candidate]; } catch(e){}
           }
         } else if (Array.isArray(window._lastReportCandidates) && window._lastReportCandidates.length) {
           _dbg('immediate-apply candidates', window._lastReportCandidates);
-          try { await loadCandidates(window._lastReportCandidates); } catch(e){}
+          // Disabled: Don't auto-load report data - we now use BIDS directory browser instead
+          // try { await loadCandidates(window._lastReportCandidates); } catch(e){}
           // do not auto-open report view when applying candidates immediately
           try { window._lastReportCandidates = []; } catch(e){}
         }
@@ -373,73 +628,69 @@
         const short = view.replace(/^main-/, '');
         const _sbd = document.getElementById('activeViewBadge'); if (_sbd) _sbd.textContent = 'view: ' + short;
       }
+
+      // Auto-load BIDS directory when report view is opened
+      if (view === 'main-report' || view === 'report') {
+        try {
+          var configBidsPathEl = document.getElementById('config_bids_path');
+          var bidsPath = (configBidsPathEl ? configBidsPathEl.value : '').trim();
+          
+          _dbg('Report view opened - checking for BIDS path', { bidsPath: bidsPath, element: !!configBidsPathEl });
+          
+          // For testing: if test-bids flag is set and no path configured, use test path
+          if (!bidsPath && window.location.search.indexOf('test-bids') !== -1) {
+            bidsPath = '~/data/OPM-benchmarking/BIDS/';
+            _dbg('Using test BIDS path', bidsPath);
+          }
+          
+          // If no path configured, use test path by default
+          if (!bidsPath) {
+            bidsPath = '~/data/OPM-benchmarking/BIDS/';
+            _dbg('No BIDS path configured, using default test path', bidsPath);
+          }
+          
+          if (bidsPath) {
+            // Use inline BIDSBrowser if available
+            if (window.BIDSBrowser && typeof window.BIDSBrowser.loadDirectory === 'function') {
+              _dbg('Auto-loading BIDS directory with inline browser', bidsPath);
+              window.BIDSBrowser.loadDirectory(bidsPath);
+            } else {
+              _dbg('BIDSBrowser not available yet, will load when button clicked');
+            }
+          }
+        } catch(e) { _dbg('Auto-load BIDS directory failed', e); }
+      }
     }));
 
-    // wire some simple report controls (back/start over/export/create) and manual load
-    // 'Load report' manual probe button
-    document.getElementById('loadReportBtn')?.addEventListener('click', async () => {
+    // Wire report button
+    document.getElementById('reportBtn')?.addEventListener('click', async () => {
       try {
-        // probe using AppConfig-derived candidates when available
-        let candidates = null;
-        try {
-          if (window.AppConfig && typeof window.AppConfig.parseSimpleYaml === 'function'){
-            // build candidates from form values
-            const projectRoot = (document.getElementById('config_root_path')?.value || '').trim();
-            const projectName = (document.getElementById('config_project_name')?.value || '').trim();
-            const bids = (document.getElementById('config_bids_path')?.value || '').trim();
-            const c = [];
-            if (projectRoot && projectName) c.push(`${projectRoot.replace(/\/$/, '')}/${projectName}/logs/bids_results.json`);
-            if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))){ c.push(`${bids.replace(/\/$/, '')}/logs/bids_results.json`); c.push(`${bids.replace(/\/$/, '')}/bids_results.json`); }
-            if (c.length) candidates = c;
-          }
-        } catch(e){}
-        try { await loadCandidates(candidates); } catch(e){ console.warn('loadReport failed', e); }
-      } catch(e){}
+        const reportFile = (document.getElementById('config_root_path')?.value || '') + '/.natmeg/bids_results.json';
+        _dbg('Loading report from', reportFile);
+        const resp = await fetch('api/get-file?file=' + encodeURIComponent(reportFile));
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const cached = await resp.json();
+        if (typeof window.AppReport.updateStats === 'function') {
+          const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
+          const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
+          const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
+          const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
+          window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
+        }
+        if (typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(cached));
+      } catch(e) { _dbg('Load report error', e); }
     });
+    
     // when AppReport loads, check if the config loader left candidate paths
-    // behind (due to a race) and try to load them automatically. Also listen
-    // for an AppConfigDeferred event (emitted by app-config when it saved
-    // payloads) so we can pick them up even when we loaded before the config
-    // module.
-    try {
-      // If AppConfig saved whole parsed payloads into _lastReportPayloads, apply
-      // them immediately (no fetch needed). Otherwise, if it left candidate
-      // paths, call loadCandidates to probe those.
-      if (window._lastReportPayloads && Object.keys(window._lastReportPayloads).length) {
-        _dbg('applying cached _lastReportPayloads', Object.keys(window._lastReportPayloads));
-        try {
-          for (const candidate of Object.keys(window._lastReportPayloads)) {
-            const cached = window._lastReportPayloads[candidate];
-            if (!cached) continue;
-            try {
-              if (typeof window.AppReport.updateStats === 'function') {
-                const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
-                const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
-                const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
-                const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
-                window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
-              }
-              if (typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(cached.bids_root || cached.bids_path || cached.root || cached.projectRoot || candidate, cached);
-              if (typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(cached));
-            } catch(e){}
-          }
-          // clear cached payloads after application
-          window._lastReportPayloads = {};
-        } catch(e) { _dbg('apply cached payloads failed', e); }
-      } else if (Array.isArray(window._lastReportCandidates) && window._lastReportCandidates.length) {
-        _dbg('found deferred candidates from AppConfig', window._lastReportCandidates);
-        setTimeout(() => { loadCandidates(window._lastReportCandidates); }, 50);
-        window._lastReportCandidates = [];
-      }
-    } catch(e){}
 
     try {
       window.addEventListener('AppConfigDeferred', (ev) => {
         try {
           const cand = ev && ev.detail && ev.detail.candidates ? ev.detail.candidates : (window._lastReportCandidates || []);
           _dbg('AppConfigDeferred event received', cand);
+          // Disabled: Don't auto-load report data - we now use BIDS directory browser instead
           // try to load candidates provided by the event
-          setTimeout(() => { loadCandidates(cand); }, 10);
+          // setTimeout(() => { loadCandidates(cand); }, 10);
         } catch(e) { _dbg('AppReport: AppConfigDeferred handler failed', e); }
       });
     } catch(e){}
@@ -447,40 +698,12 @@
     // Poll briefly for cached payloads in case the AppConfigDeferred event
     // fired before our handler was registered, or to be resilient across
     // unusual race conditions.
-    try {
-      let pollTries = 0;
-      const shouldPoll = !(typeof process !== 'undefined' && process.env && process.env.JEST_WORKER_ID);
-      const pollT = shouldPoll ? setInterval(() => {
-        try {
-          const keys = Object.keys(window._lastReportPayloads || {});
-          if (keys.length) {
-            _dbg('poll discovered cached payload keys', keys);
-            // apply and clear
-            for (const k of keys) {
-              try {
-                const cached = window._lastReportPayloads[k];
-                if (!cached) continue;
-                if (typeof window.AppReport.updateStats === 'function'){
-                  const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
-                  const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
-                  const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
-                  const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
-                  window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
-                }
-                if (typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(cached.bids_root || cached.bids_path || cached.root || cached.projectRoot || k, cached);
-                if (typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(cached));
-                // do not auto-open report view on poll apply — user must switch views manually
-                // cleanup
-                delete window._lastReportPayloads[k];
-              } catch(e) { _dbg('apply cached in poll failed', e); }
-            }
-            clearInterval(pollT);
-          }
-        } catch(e){}
-        pollTries++;
-        if (pollTries > 12) clearInterval(pollT);
-      }, 250) : null;
-    } catch(e){}
+    // Disabled: Don't auto-load report data - we now use BIDS directory browser instead
+    // try {
+    //   let pollTries = 0;
+    //   ...
+    // } catch(e){}
+    try {} catch(e){}
     document.getElementById('startOverBtn')?.addEventListener('click', () => { clearReport(); });
     document.getElementById('exportReportBtn')?.addEventListener('click', () => { exportReportHTML(); });
     document.getElementById('createReportBtn')?.addEventListener('click', () => { if (window.AppJobs && typeof window.AppJobs.createJob === 'function') window.AppJobs.createJob('report'); });

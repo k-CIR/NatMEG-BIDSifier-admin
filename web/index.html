@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>NatMEG-BIDSifier — Web UI</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=2">
   </head>
   <body>
     <div class="app-container">
@@ -32,13 +32,13 @@
               <span class="step-label">Execute</span>
             </div>
           </div>
-          <!-- Hiding repor for now -->
-          <!-- <div class="nav-section">
+
+          <div class="nav-section">
             <div class="nav-item" data-view="main-report" data-step="4">
               <span class="step-number">4</span>
-              <span class="step-label">Report</span>
+              <span class="step-label">Results</span>
             </div>
-          </div> -->
+          </div>
         </div>
         <div class="sidebar-footer">
           <a class="github-link" href="https://github.com/k-CIR/NatMEG-BIDSifier" target="_blank">GitHub</a>
@@ -70,9 +70,10 @@
             <div style="display:flex; gap:16px; align-items:flex-start; width:100%;">
               <!-- Server section spans both columns -->
               <div class="form-section" style="flex:1;">
-                <div style="font-weight:700; margin-bottom:8px;">Server config path <small style="color: var(--muted); font-weight:400">Absolute path</small></div>
+                <div style="font-weight:700; margin-bottom:8px;">Config file</div>
                 <div style="display:flex; gap:8px; align-items:center;">
                   <input id="loadConfigPath" placeholder="server path to load config file" class="input-wide-compact" style="flex:1">
+                  <button type="button" class="btn btn-browse" onclick="FileBrowser.open('loadConfigPath')" style="margin:0;">📁 Browse</button>
                   <button id="loadConfigBtn" class="btn">Load</button>
                   <button id="saveConfigBtn" class="btn primary" disabled>💾 Save</button>
                   <div id="configSaveState" class="muted" style="margin-left:6px">saved</div>
@@ -109,23 +110,23 @@
               <small class="hint">Filesystem locations used by the conversion (root, raw data and outputs).</small>
               <div class="form-group">
                 <label>Project's root <small style="color: var(--muted); font-weight:400">Absolute path</small></label>
-                <div style="display:flex; gap:8px;"><input id="config_root_path" class="input-wide-compact"></div>
+                <div style="display:flex; gap:8px;"><input id="config_root_path" class="input-wide-compact"><button type="button" class="btn btn-browse" onclick="FileBrowser.open('config_root_path')">📁 Browse</button></div>
               </div>
               <div class="form-group">
                 <label>Raw Data Folder</label>
-                <div style="display:flex; gap:8px;"><input id="config_raw_path" class="input-wide-compact"></div>
+                <div style="display:flex; gap:8px;"><input id="config_raw_path" class="input-wide-compact"><button type="button" class="btn btn-browse" onclick="FileBrowser.open('config_raw_path')">📁 Browse</button></div>
               </div>
               <div class="form-group">
                 <label>BIDS Output Folder</label>
-                <div style="display:flex; gap:8px;"><input id="config_bids_path" class="input-wide-compact"></div>
+                <div style="display:flex; gap:8px;"><input id="config_bids_path" class="input-wide-compact"><button type="button" class="btn btn-browse" onclick="FileBrowser.open('config_bids_path')">📁 Browse</button></div>
               </div>
               <div class="form-group">
                 <label>Calibration file</label>
-                <div style="display:flex; gap:8px;"><input id="config_calibration_path" class="input-text"></div>
+                <div style="display:flex; gap:8px;"><input id="config_calibration_path" class="input-text"><button type="button" class="btn btn-browse" onclick="FileBrowser.open('config_calibration_path')">📁 Browse</button></div>
               </div>
               <div class="form-group">
                 <label>Crosstalk file</label>
-                <div style="display:flex; gap:8px;"><input id="config_crosstalk_path" class="input-text"></div>
+                <div style="display:flex; gap:8px;"><input id="config_crosstalk_path" class="input-text"><button type="button" class="btn btn-browse" onclick="FileBrowser.open('config_crosstalk_path')">📁 Browse</button></div>
               </div>
             </div>
   
@@ -228,6 +229,7 @@
               <!-- flexible path input group: grows to take the available horizontal space -->
               <div style="display:flex; align-items:center; gap:6px; flex:1; min-width:0;">
                 <input id="saveTablePath" class="input-text" placeholder="Path to table (edit to save as...)" style="min-width:0; width:100%;">
+                <button type="button" class="btn btn-browse" onclick="FileBrowser.open('saveTablePath')" title="Browse for path" style="margin:0;">📁 Browse</button>
                 <button id="reloadEditorBtn" class="btn btn-icon" disabled title="Reload table" aria-label="Reload">
                   <!-- Inline compact SVG glyph (monochrome, uses currentColor) -->
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
@@ -331,11 +333,10 @@
       </div>
 
       <div id="main-report" class="main-view view-hidden">
-        <h3>Report</h3>
+        <h3>Results</h3>
         <div style="display:flex; gap:10px; align-items:center; margin-top:8px;"></div>
           <button id="reportBtn" class="btn">📊 Report</button>
-          <button id="loadReportBtn" class="btn" title="Probe for bids_results.json and populate the Report view">🔄 Load report</button>
-
+           <button id="loadBidsBrowserBtn" class="btn">Load BIDS Browser</button>
         <div class="flex-1"></div>
         
         <div class="card" style="margin-top:14px">
@@ -346,13 +347,10 @@
               </div>
               <div id="reportProgressText" class="muted" style="margin-top:6px">Idle</div>
             </div>
-            <div style="margin-left:8px">
-              <button id="reportStopBtn" class="btn warn" disabled>■ Stop</button>
-            </div>
           </div>
 
           <div style="display:flex; gap:12px; margin-top:12px; align-items:flex-start;">
-            <div style="flex: 1 1 360px; min-width:320px;">
+            <div style="flex: 1 1 800px; min-width:320px;">
               <h4>Summary</h4>
               <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
                 <div style="padding:10px; border-radius:6px; border:1px solid #eee; text-align:center;">
@@ -369,17 +367,50 @@
                 </div>
               </div>
 
-              <h4 style="margin-top:12px">BIDS tree</h4>
-              <div id="reportTree" style="border:1px solid #eee; padding:8px; border-radius:6px; max-height:380px; overflow:auto; background:#fafafa">No BIDS results yet</div>
+              <h4 style="margin-top:12px">BIDS Browser</h4>
+              <div id="bidsBrowserContainer" style="border:1px solid #eee; border-radius:6px; background:#fafafa; display:flex; flex-direction:column; min-height:400px; padding: 12px; overflow: auto;">
+                <div style="color: #999; font-size: 13px; text-align: center;">Click "Load BIDS Browser" to browse BIDS directory</div>
+              </div>
+              
+              <style>
+                .bids-item:hover {
+                  background-color: #f0f7ff !important;
+                }
+              </style>
+              
+              <!-- Load external BIDS Browser module -->
+              <script src="app-bids-browser.js"></script>
+              
+              <!-- Attach button handler -->
+              <script>
+                (function() {
+                  var loadBtn = document.getElementById('loadBidsBrowserBtn');
+                  if (!loadBtn || !window.BIDSBrowser) return;
+                  
+                  loadBtn.addEventListener('click', function() {
+                    var configBidsPathEl = document.getElementById('config_bids_path');
+                    var bidsPath = (configBidsPathEl ? configBidsPathEl.value : '').trim();
+                    
+                    // Use test path if none configured
+                    if (!bidsPath) {
+                      bidsPath = '~/data/OPM-benchmarking/BIDS/';
+                    }
+                    
+                    if (window.BIDSBrowser && typeof window.BIDSBrowser.loadDirectory === 'function') {
+                      window.BIDSBrowser.loadDirectory(bidsPath);
+                    }
+                  });
+                })();
+              </script>
             </div>
 
-            <div style="flex: 1 1 420px; min-width:360px;">
+            <!-- <div style="flex: 1 1 420px; min-width:360px;">
               <h4>Console</h4>
               <pre id="reportOutput" class="console-output small">—</pre>
 
               <h4 style="margin-top:12px">Report View</h4>
               <div id="reportArea">No report yet — run Analyse or Report to generate output</div>
-            </div>
+            </div> -->
           </div>
         </div>
       </div>
@@ -403,6 +434,7 @@
       </div>
     </div>
     <script src="/editor-model.js"></script>
+    <script src="/app-filebrowser.js"></script>
     <script src="/app-report.js"></script>
     <script src="/app-config.js"></script>
     <script src="/app-editor.js"></script>

@@ -373,6 +373,23 @@ def _safe_path(path: str) -> Optional[str]:
         except ValueError:
             pass
         
+        # Check if under /data/users/ with any accessible user directory
+        # Users can access other user directories if they have permissions
+        data_users_dir = '/data/users'
+        try:
+            if os.path.commonpath([data_users_dir, abs_candidate]) == data_users_dir:
+                # Check accessibility - rely on filesystem permissions
+                if not _is_accessible(abs_candidate):
+                    return None
+                return abs_candidate
+        except ValueError:
+            pass
+        
+        # Check if it's /data/ itself (allow browsing to show safe paths)
+        if abs_candidate == '/data':
+            # Just return it; listdir will show user's accessible subdirs
+            return abs_candidate
+        
         # Check if under /data/projects/ (shared project directories)
         # Access is controlled by filesystem permissions - user must have read/write access
         projects_dir = '/data/projects'
@@ -447,9 +464,36 @@ async def api_list_dir(payload: Dict[str, Any]):
         return JSONResponse({ 'error': 'directory not found', 'path': p }, status_code=404)
     try:
         items = []
+        current_user = os.path.expanduser('~').split('/')[-1]
+        
         for name in sorted(os.listdir(safe)):
             ap = os.path.join(safe, name)
-            items.append({ 'name': name, 'path': os.path.join(p, name), 'is_dir': os.path.isdir(ap), 'size': os.path.getsize(ap) if os.path.isfile(ap) else None })
+            item_path = os.path.join(p, name)
+            
+            # Special filtering for /data/ - only show user's accessible paths
+            if safe == '/data':
+                # Only show /data/users and /data/projects (if accessible)
+                if name == 'users' or name == 'projects':
+                    # Check if the item is accessible
+                    if os.access(ap, os.R_OK):
+                        items.append({ 'name': name, 'path': item_path, 'is_dir': True, 'size': None })
+                # Skip other items in /data/
+                continue
+            
+            # Special filtering for /data/users/ - show all user directories the user can access
+            if safe == '/data/users':
+                # Try to access each user directory
+                if os.access(ap, os.R_OK):
+                    items.append({ 'name': name, 'path': item_path, 'is_dir': True, 'size': None })
+                continue
+            
+            # For other directories: only include items that pass _safe_path check
+            # This ensures users can't navigate to non-permitted paths
+            if _safe_path(item_path):
+                is_dir = os.path.isdir(ap)
+                size = os.path.getsize(ap) if os.path.isfile(ap) else None
+                items.append({ 'name': name, 'path': item_path, 'is_dir': is_dir, 'size': size })
+        
         return { 'path': p, 'abs_path': safe, 'items': items }
     except Exception as exc:
         return JSONResponse({ 'error': 'list error', 'details': str(exc) }, status_code=500)
