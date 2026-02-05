@@ -59,7 +59,7 @@ case "$CMD" in
 esac
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port) PORT="$2"; PIDFILE="$REPO_ROOT/.server.${PORT}.pid"; LOGFILE="$HOME/natmeg-server-${PORT}.log"; shift 2;;
+    --port) PORT="$2"; PIDFILE="$USER_RUNTIME_DIR/.server.${PORT}.pid"; LOGFILE="$USER_RUNTIME_DIR/natmeg-server-${PORT}.log"; shift 2;;
     --host) HOST="$2"; shift 2;;
     *) break;;
   esac
@@ -132,7 +132,7 @@ stop(){
   fi
   PID=$(cat "$PIDFILE" 2>/dev/null || echo '')
   if [ -z "$PID" ]; then
-    echo "Empty pidfile; removing"; rm -f "$PIDFILE"; return 0
+    echo "Empty pidfile; removing"; rm -f "$PIDFILE" "$LOGFILE"; return 0
   fi
   if kill -0 "$PID" >/dev/null 2>&1; then
     echo "Stopping server pid=$PID"; kill "$PID" || true
@@ -143,7 +143,7 @@ stop(){
   else
     echo "No such process $PID (stale pidfile), cleaning up";
   fi
-  rm -f "$PIDFILE"
+  rm -f "$PIDFILE" "$LOGFILE"
 }
 
 status(){
