@@ -43,6 +43,10 @@ os.makedirs(USER_TEMP_DIR, exist_ok=True)
 USER_JOBS_DIR = os.path.join(USER_RUNTIME_DIR, 'logs', 'jobs')
 os.makedirs(USER_JOBS_DIR, exist_ok=True)
 
+# Deployment mode: set LOCAL_MODE=1 for local single-user mode,
+# unset/0 for server mode with /data/ multi-user storage
+LOCAL_MODE = os.environ.get('LOCAL_MODE', '0').lower() in ('1', 'true', 'yes')
+
 
 class RawConfig(BaseModel):
     config_yaml: Optional[str] = None
@@ -300,15 +304,28 @@ async def ping():
     return { 'ok': True }
 
 
+@app.get('/api/config')
+async def get_config():
+    """Get server configuration info (deployment mode, etc.)"""
+    return { 
+        'local_mode': LOCAL_MODE,
+        'repo_root': REPO_ROOT,
+        'user_home': os.path.expanduser('~')
+    }
+
+
 def _safe_path(path: str) -> Optional[str]:
-    """Return an absolute path for `path` that is constrained under REPO_ROOT, the current user's home,
-    or /data/users/<username>.
+    """Return an absolute path for `path` that is constrained by security boundaries.
     Returns None if the computed path would escape allowed boundaries or is not accessible.
+    
+    In LOCAL_MODE: paths can be under REPO_ROOT or user's home directory.
+    In SERVER_MODE: paths can be under REPO_ROOT, /data/users/<username>, or /data/projects/.
     
     Security model:
     - Paths under REPO_ROOT are always allowed.
     - Paths starting with '~' are expanded to the current user's home directory (constrained there).
-    - Paths under /data/users/<username> are allowed (confined to that user's data directory).
+    - In SERVER_MODE: paths under /data/users/<username> or /data/projects/ are allowed.
+    - In LOCAL_MODE: only REPO_ROOT and user home are allowed.
     - Other absolute paths are rejected (no arbitrary filesystem access).
     - For existing files/dirs: must be readable. For new files: parent directory must be writable.
     """
@@ -347,12 +364,12 @@ def _safe_path(path: str) -> Optional[str]:
             return None
         return abs_candidate
 
-    # Reject absolute paths (except those under REPO_ROOT or /data/users/<user>, handled below)
+    # Reject absolute paths (except those under allowed locations)
     # This prevents arbitrary filesystem access outside allowed locations
     if os.path.isabs(path):
         abs_candidate = os.path.abspath(path)
         
-        # Check if under REPO_ROOT
+        # Check if under REPO_ROOT (always allowed)
         try:
             if os.path.commonpath([REPO_ROOT, abs_candidate]) == REPO_ROOT:
                 # Check accessibility
@@ -361,6 +378,21 @@ def _safe_path(path: str) -> Optional[str]:
                 return abs_candidate
         except ValueError:
             pass
+        
+        # In LOCAL_MODE, also allow user home
+        if LOCAL_MODE:
+            try:
+                if os.path.commonpath([user_home, abs_candidate]) == user_home:
+                    # Check accessibility
+                    if not _is_accessible(abs_candidate):
+                        return None
+                    return abs_candidate
+            except ValueError:
+                pass
+            # Not in any allowed location for local mode
+            return None
+        
+        # SERVER_MODE: additional /data/ directories allowed
         
         # Check if under /data/users/<current_user>
         user_data_dir = f'/data/users/{current_user}'
@@ -470,22 +502,23 @@ async def api_list_dir(payload: Dict[str, Any]):
             ap = os.path.join(safe, name)
             item_path = os.path.join(p, name)
             
-            # Special filtering for /data/ - only show user's accessible paths
-            if safe == '/data':
-                # Only show /data/users and /data/projects (if accessible)
-                if name == 'users' or name == 'projects':
-                    # Check if the item is accessible
+            # In SERVER_MODE: Special filtering for /data/ - only show user's accessible paths
+            if not LOCAL_MODE:
+                if safe == '/data':
+                    # Only show /data/users and /data/projects (if accessible)
+                    if name == 'users' or name == 'projects':
+                        # Check if the item is accessible
+                        if os.access(ap, os.R_OK):
+                            items.append({ 'name': name, 'path': item_path, 'is_dir': True, 'size': None })
+                    # Skip other items in /data/
+                    continue
+                
+                # Special filtering for /data/users/ - show all user directories the user can access
+                if safe == '/data/users':
+                    # Try to access each user directory
                     if os.access(ap, os.R_OK):
                         items.append({ 'name': name, 'path': item_path, 'is_dir': True, 'size': None })
-                # Skip other items in /data/
-                continue
-            
-            # Special filtering for /data/users/ - show all user directories the user can access
-            if safe == '/data/users':
-                # Try to access each user directory
-                if os.access(ap, os.R_OK):
-                    items.append({ 'name': name, 'path': item_path, 'is_dir': True, 'size': None })
-                continue
+                    continue
             
             # For other directories: only include items that pass _safe_path check
             # This ensures users can't navigate to non-permitted paths
