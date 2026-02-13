@@ -110,7 +110,7 @@
         xhr.onerror = function() {
           container.innerHTML = '<div style="color: #e74c3c; font-size: 12px;">Network error loading directory</div>';
         };
-        xhr.send(JSON.stringify({ path: path }));
+        xhr.send(JSON.stringify({ path: path, calculate_size: true }));
       } catch(e) {
         console.error('BIDSBrowser.loadAndRender error:', e);
       }
@@ -138,10 +138,11 @@
           var indent = level * 16;
           var isDir = item.is_dir;
           var icon = isDir ? '📁' : '📄';
-          var sizeStr = item.size ? self.formatSize(item.size) : '';
+          var sizeStr = item.size !== null && item.size !== undefined ? self.formatSize(item.size) : '';
+          var modDateStr = item.mtime ? self.formatDate(item.mtime) : '';
           var itemType = isDir ? 'folder' : 'file';
           
-          html += '<div class="bids-item" data-type="' + itemType + '" data-path="' + (isDir ? self.escapeHtml(item.path) : '') + '" style="padding: 3px 6px; display: flex; align-items: center; gap: 8px; margin-left: ' + indent + 'px; border-radius: 3px; cursor: default;">';
+          html += '<div class="bids-item" data-type="' + itemType + '" data-path="' + self.escapeHtml(item.path) + '" data-level="' + level + '" data-indent="' + indent + '" style="padding: 3px 6px; display: flex; align-items: center; gap: 8px; margin-left: ' + indent + 'px; border-radius: 3px; cursor: default;">';
           
           if (isDir) {
             html += '<button class="bids-toggle" data-path="' + self.escapeHtml(item.path) + '" style="border: none; background: none; cursor: pointer; padding: 0 2px; width: 14px; text-align: center; font-size: 11px; color: #666; font-weight: bold;">▶</button>';
@@ -151,7 +152,8 @@
           
           html += '<span style="color: #333; font-size: 12px;">' + icon + '</span>';
           html += '<span style="flex: 1; cursor: default; user-select: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + self.escapeHtml(item.name) + '">' + self.escapeHtml(item.name) + '</span>';
-          html += '<span style="color: #999; font-size: 9px; min-width: 55px; text-align: right; flex-shrink: 0;">' + sizeStr + '</span>';
+          html += '<span style="color: #999; font-size: 9px; min-width: 145px; text-align: right; flex-shrink: 0;" title="' + modDateStr + '">' + modDateStr + '</span>';
+          html += '<span style="color: #999; font-size: 9px; min-width: 60px; text-align: right; flex-shrink: 0;">' + sizeStr + '</span>';
           html += '</div>';
           
           if (isDir) {
@@ -221,21 +223,76 @@
         var typeFilter = container.querySelector('.bids-type');
         var search = searchInput ? searchInput.value.toLowerCase() : '';
         var typeVal = typeFilter ? typeFilter.value : '';
-        var items = container.querySelectorAll('.bids-item');
         
+        var items = container.querySelectorAll('.bids-item');
+        var childDivs = container.querySelectorAll('.bids-children');
+        
+        // If no search and no filter, show everything and restore original indentation
+        if (!search && !typeVal) {
+          for (var i = 0; i < items.length; i++) {
+            items[i].style.display = 'block';
+            items[i].removeAttribute('data-filtered');
+            var originalIndent = items[i].getAttribute('data-indent');
+            if (originalIndent !== null) {
+              items[i].style.marginLeft = originalIndent + 'px';
+            }
+          }
+          for (var j = 0; j < childDivs.length; j++) {
+            childDivs[j].removeAttribute('data-filtered');
+            // Keep collapsed folders collapsed, show expanded ones
+            if (!childDivs[j].getAttribute('data-collapsed')) {
+              childDivs[j].style.display = 'block';
+            } else {
+              childDivs[j].style.display = 'none';
+            }
+          }
+          return;
+        }
+        
+        // Filtering is active
+        // Step 1: Hide everything
+        for (var i = 0; i < items.length; i++) {
+          items[i].style.display = 'none';
+          items[i].setAttribute('data-filtered', 'true');
+        }
+        for (var j = 0; j < childDivs.length; j++) {
+          childDivs[j].style.display = 'none';
+        }
+        
+        // Step 2: Show matching items with flat indentation
         for (var i = 0; i < items.length; i++) {
           var item = items[i];
-          var show = true;
+          var itemType = item.getAttribute('data-type');
+          var text = item.textContent.toLowerCase();
           
-          if (search && item.textContent.toLowerCase().indexOf(search) === -1) {
-            show = false;
+          var matchesSearch = !search || text.indexOf(search) !== -1;
+          var matchesType = !typeVal || 
+            (typeVal === 'folders' && itemType === 'folder') ||
+            (typeVal === 'files' && itemType === 'file');
+          
+          if (matchesSearch && matchesType) {
+            item.style.display = 'block';
+            item.setAttribute('data-filtered', 'false');
+            item.style.marginLeft = '0px';  // Flat layout during search
+          }
+        }
+        
+        // Step 3: Show containers that have visible items
+        for (var j = 0; j < childDivs.length; j++) {
+          var childDiv = childDivs[j];
+          var itemsInContainer = childDiv.querySelectorAll('.bids-item');
+          var hasVisibleItem = false;
+          
+          for (var k = 0; k < itemsInContainer.length; k++) {
+            if (itemsInContainer[k].getAttribute('data-filtered') === 'false') {
+              hasVisibleItem = true;
+              break;
+            }
           }
           
-          var itemType = item.getAttribute('data-type');
-          if (typeVal === 'folders' && itemType !== 'folder') show = false;
-          if (typeVal === 'files' && itemType !== 'file') show = false;
-          
-          item.style.display = show ? 'block' : 'none';
+          if (hasVisibleItem) {
+            childDiv.style.display = 'block';
+          }
         }
       } catch(e) {
         console.error('BIDSBrowser.applyFilters error:', e);
@@ -265,9 +322,11 @@
           self.expandedDirsDelete(dirPath);
           button.textContent = '▶';
           childContainer.style.display = 'none';
+          childContainer.setAttribute('data-collapsed', 'true');
         } else {
           self.expandedDirsAdd(dirPath);
           button.textContent = '▼';
+          childContainer.removeAttribute('data-collapsed');
           childContainer.style.display = 'block';
           
           if (childContainer.innerHTML === '') {
@@ -281,7 +340,7 @@
                 self.setupEventListeners(childContainer, dirPath);
               }
             };
-            xhr.send(JSON.stringify({ path: dirPath }));
+            xhr.send(JSON.stringify({ path: dirPath, calculate_size: true }));
           }
         }
       } catch(e) {
@@ -296,6 +355,17 @@
       var i = Math.floor(Math.log(bytes) / Math.log(k));
       var size = Math.round(bytes / Math.pow(k, i) * 10) / 10;
       return size + ' ' + sizes[i];
+    },
+    
+    formatDate: function(timestamp) {
+      var date = new Date(timestamp * 1000);
+      var year = date.getFullYear();
+      var month = String(date.getMonth() + 1).padStart(2, '0');
+      var day = String(date.getDate()).padStart(2, '0');
+      var hours = String(date.getHours()).padStart(2, '0');
+      var minutes = String(date.getMinutes()).padStart(2, '0');
+      var seconds = String(date.getSeconds()).padStart(2, '0');
+      return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ':' + seconds;
     }
   };
   

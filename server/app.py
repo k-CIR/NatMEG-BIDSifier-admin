@@ -300,6 +300,34 @@ async def ping():
     return { 'ok': True }
 
 
+def _get_dir_size(path: str, max_recursion_depth: int = 5) -> int:
+    """Calculate total size of a directory recursively (with depth limit).
+    Returns total bytes, or 0 if path doesn't exist or is not readable.
+    Limited recursion depth to avoid expensive traversals of large directory trees.
+    """
+    try:
+        total = 0
+        level = 0
+        for dirpath, dirnames, filenames in os.walk(path):
+            # Calculate depth based on path
+            current_depth = dirpath[len(path):].count(os.sep)
+            if current_depth > max_recursion_depth:
+                # Don't traverse deeper
+                dirnames.clear()
+                continue
+            
+            for filename in filenames:
+                filepath = os.path.join(dirpath, filename)
+                try:
+                    total += os.path.getsize(filepath)
+                except (OSError, IOError):
+                    # Skip files we can't access
+                    pass
+        return total
+    except (OSError, IOError):
+        return 0
+
+
 def _safe_path(path: str) -> Optional[str]:
     """Return an absolute path for `path` that is constrained under REPO_ROOT, the current user's home,
     or /data/users/<username>.
@@ -454,9 +482,12 @@ async def api_save_file(payload: Dict[str, Any]):
 @app.post('/api/list-dir')
 async def api_list_dir(payload: Dict[str, Any]):
     """Return a listing of files/directories under the given repo-root relative path.
-    payload: { path: <relative path> }
+    payload: { path: <relative path>, calculate_size: <optional bool> }
+    If calculate_size is True, directory sizes will be computed (for BIDS browser).
+    Otherwise, only mtime is returned (for file browser performance).
     """
     p = payload.get('path', '.')
+    calculate_size = payload.get('calculate_size', False)
     safe = _safe_path(p)
     if not safe:
         return JSONResponse({ 'error': 'invalid path (outside repo root or empty)' }, status_code=400)
@@ -476,7 +507,15 @@ async def api_list_dir(payload: Dict[str, Any]):
                 if name == 'users' or name == 'projects':
                     # Check if the item is accessible
                     if os.access(ap, os.R_OK):
-                        items.append({ 'name': name, 'path': item_path, 'is_dir': True, 'size': None })
+                        try:
+                            stat_info = os.stat(ap)
+                            mtime = int(stat_info.st_mtime)
+                        except:
+                            mtime = None
+                        item = { 'name': name, 'path': item_path, 'is_dir': True, 'mtime': mtime }
+                        if calculate_size:
+                            item['size'] = _get_dir_size(ap, max_recursion_depth=2)
+                        items.append(item)
                 # Skip other items in /data/
                 continue
             
@@ -484,15 +523,33 @@ async def api_list_dir(payload: Dict[str, Any]):
             if safe == '/data/users':
                 # Try to access each user directory
                 if os.access(ap, os.R_OK):
-                    items.append({ 'name': name, 'path': item_path, 'is_dir': True, 'size': None })
+                    try:
+                        stat_info = os.stat(ap)
+                        mtime = int(stat_info.st_mtime)
+                    except:
+                        mtime = None
+                    item = { 'name': name, 'path': item_path, 'is_dir': True, 'mtime': mtime }
+                    if calculate_size:
+                        item['size'] = _get_dir_size(ap, max_recursion_depth=3)
+                    items.append(item)
                 continue
             
             # For other directories: only include items that pass _safe_path check
             # This ensures users can't navigate to non-permitted paths
             if _safe_path(item_path):
                 is_dir = os.path.isdir(ap)
-                size = os.path.getsize(ap) if os.path.isfile(ap) else None
-                items.append({ 'name': name, 'path': item_path, 'is_dir': is_dir, 'size': size })
+                try:
+                    stat_info = os.stat(ap)
+                    mtime = int(stat_info.st_mtime)
+                except:
+                    mtime = None
+                item = { 'name': name, 'path': item_path, 'is_dir': is_dir, 'mtime': mtime }
+                if calculate_size:
+                    if is_dir:
+                        item['size'] = _get_dir_size(ap, max_recursion_depth=5)
+                    else:
+                        item['size'] = os.path.getsize(ap)
+                items.append(item)
         
         return { 'path': p, 'abs_path': safe, 'items': items }
     except Exception as exc:

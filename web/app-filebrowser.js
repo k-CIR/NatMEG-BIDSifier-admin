@@ -76,19 +76,11 @@
             const itemEl = document.createElement('div');
             itemEl.className = 'filebrowser-item ' + (item.is_dir ? 'dir' : 'file');
             
-            // Create a more structured item with name and size info
+            // Create a more structured item with name only
             const nameSpan = document.createElement('span');
             nameSpan.className = 'filebrowser-item-name';
             nameSpan.textContent = item.name || '(unnamed)';
             itemEl.appendChild(nameSpan);
-            
-            // Add file size for files
-            if (!item.is_dir && item.size !== null && item.size !== undefined) {
-              const sizeSpan = document.createElement('span');
-              sizeSpan.className = 'filebrowser-item-size';
-              sizeSpan.textContent = formatFileSize(item.size);
-              itemEl.appendChild(sizeSpan);
-            }
 
             if (item.is_dir) {
               itemEl.addEventListener('click', () => loadDirectory(item.path));
