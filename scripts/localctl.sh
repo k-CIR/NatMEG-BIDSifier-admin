@@ -354,20 +354,18 @@ if [[ "$cmd" == "cleanup" ]]; then
       echo "No uvicorn processes found running for current user."
     else
       echo "Found uvicorn processes owned by current user on ports: $PORTS"
-      # Stop each port - kill by finding the PID and killing it directly
-      while IFS= read -r port; do
+      # Stop each port using pkill
+      set +e  # Disable error exit for this loop since pkill may not find processes
+      # Convert ports string to array
+      IFS=$'\n' read -rd '' -a PORTS_ARRAY <<<"$PORTS" || true
+      for port in "${PORTS_ARRAY[@]}"; do
         if [[ -n "$port" ]]; then
           echo "Killing process on port $port..."
-          # Get PID of process listening on this port and kill it
-          PID=$(run_ssh_cmd "ps aux | grep \"\$(whoami)\" | grep \"port $port\" | grep -v grep | awk '{print \$2}'" 2>/dev/null || echo "")
-          if [[ -n "$PID" ]]; then
-            run_ssh_cmd "kill -9 $PID" 2>/dev/null && echo "  Killed PID $PID" || echo "  Failed to kill PID $PID"
-          else
-            echo "  Could not find PID for port $port"
-          fi
+          run_ssh_cmd "pkill -9 -f \"uvicorn.*--port $port\"" 2>/dev/null && echo "  Killed process on port $port" || echo "  No process found on port $port"
           sleep 0.2
         fi
-      done <<< "$PORTS"
+      done
+      set -e  # Re-enable error exit
     fi
     
     # Remove all local tunnel files

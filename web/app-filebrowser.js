@@ -3,6 +3,43 @@
   // Track which input field requested the file browser
   let targetInputId = null;
   let currentPath = '/';
+  let deploymentConfig = null;
+
+  // Fetch server configuration
+  async function getDeploymentConfig() {
+    if (deploymentConfig) return deploymentConfig;
+    try {
+      const resp = await fetch('/api/config');
+      if (resp.ok) {
+        deploymentConfig = await resp.json();
+        return deploymentConfig;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch deployment config:', e);
+    }
+    
+    // If fetch fails, try to detect local mode by attempting to access /data/
+    try {
+      const resp = await fetch('/api/list-dir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: '/data/' })
+      });
+      
+      // If /data/ is accessible, we're in server mode
+      if (resp.ok) {
+        deploymentConfig = { local_mode: false, repo_root: '.', user_home: '~' };
+      } else {
+        // If /data/ is not accessible, assume local mode
+        deploymentConfig = { local_mode: true, repo_root: '.', user_home: '~' };
+      }
+    } catch (e) {
+      // If we can't even check, default to local mode (safer fallback)
+      deploymentConfig = { local_mode: true, repo_root: '.', user_home: '~' };
+    }
+    
+    return deploymentConfig;
+  }
 
   // Parse a path into parts for breadcrumb navigation
   function getPathParts(path) {
@@ -27,6 +64,7 @@
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return Math.round(bytes / Math.pow(k, i) * 10) / 10 + ' ' + sizes[i];
   }
+
 
   // Load and display directory contents
   async function loadDirectory(path) {
@@ -190,7 +228,7 @@
   }
 
   // Open file browser modal for a specific input
-  function openFileBrowser(inputId, initialPath = null) {
+  async function openFileBrowser(inputId, initialPath = null) {
     targetInputId = inputId;
     const inputEl = document.getElementById(inputId);
 
@@ -203,9 +241,16 @@
       }
     }
     
-    // 2. If no path determined yet, default to /data/ (shows safe paths)
+    // 2. If no path determined yet, use deployment-appropriate default
     if (!initialPath) {
-      initialPath = '/data/';
+      const config = await getDeploymentConfig();
+      if (config.local_mode) {
+        // In local mode, default to user home directory
+        initialPath = config.user_home || '~';
+      } else {
+        // In server mode, default to /data/
+        initialPath = '/data/';
+      }
     }
 
     // Ensure modal exists
@@ -219,6 +264,7 @@
 
     loadDirectory(initialPath);
   }
+
 
   // Close file browser modal
   function closeFileBrowser() {
@@ -292,9 +338,9 @@
       browseBtn.type = 'button';
       browseBtn.className = 'btn btn-browse';
       browseBtn.textContent = '📁 Browse';
-      browseBtn.addEventListener('click', (e) => {
+      browseBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        openFileBrowser(inputId, options.initialPath);
+        await openFileBrowser(inputId, options.initialPath);
       });
       wrapper.appendChild(browseBtn);
     }
@@ -302,9 +348,20 @@
 
   // Public API
   window.FileBrowser = {
-    open: openFileBrowser,
+    open: async (inputId, initialPath) => {
+      try {
+        await openFileBrowser(inputId, initialPath);
+      } catch (e) {
+        console.error('Error opening file browser:', e);
+      }
+    },
     close: closeFileBrowser,
     attach: attachFileBrowser,
     selectPath: selectPath
   };
+
+  // Pre-fetch deployment config on module load so it's cached
+  getDeploymentConfig().catch(() => {
+    // Silently ignore errors - will use defaults if fetch fails
+  });
 })();
