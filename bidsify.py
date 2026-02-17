@@ -1043,7 +1043,7 @@ def load_conversion_table(config: dict):
         os.makedirs(conversion_logs_path, exist_ok=True)
         print("No conversion logs directory found. Created new")
     
-    if conversion_file and exists(conversion_file) and not overwrite:
+    if conversion_file and exists(conversion_file) and os.path.isfile(conversion_file) and not overwrite:
         # Check if file is not empty before reading
         try:
             if os.path.getsize(conversion_file) > 0:
