@@ -1030,17 +1030,22 @@ def load_conversion_table(config: dict):
         - May generate new conversion table
         - Prints table loading information
     """
-    # Load the most recent conversion table
+    # Load the most recent conversion table from config
     logPath = setLogPath(config)
+    conversion_file = config.get('Conversion_file', 'bids_conversion.tsv')
+
+    if not os.path.exists(logPath):
+        os.makedirs(logPath, exist_ok=True)
+        print(f"Created new log path: {logPath}")
     
-    
-    conversion_file = config.get('Conversion_file', None)
-    conversion_file = os.path.join(logPath, conversion_file)
+    # Check if conversion_file is a full path or just a filename
+    if not os.path.isabs(conversion_file):
+        conversion_file = os.path.join(logPath, conversion_file)
         
     overwrite = config.get('Overwrite_conversion', False)
     
     if not os.path.exists(dirname(conversion_file)):
-        os.makedirs(conversion_logs_path, exist_ok=True)
+        os.makedirs(dirname(conversion_file), exist_ok=True)
         print("No conversion logs directory found. Created new")
     
     if conversion_file and exists(conversion_file) and os.path.isfile(conversion_file) and not overwrite:
@@ -1065,14 +1070,13 @@ def load_conversion_table(config: dict):
         results = list(generate_new_conversion_table(config))
         conversion_table = pd.DataFrame(results)
 
-        conversion_file_path = f'{conversion_logs_path}/bids_conversion.tsv'
-        conversion_table.to_csv(conversion_file_path, sep='\t', index=False)
-        print(f"New conversion table generated and saved to {basename(conversion_file_path)}")
-        while not exists(conversion_file_path):
+        conversion_table.to_csv(conversion_file, sep='\t', index=False)
+        print(f"New conversion table generated and saved to {basename(conversion_file)}")
+        while not exists(conversion_file):
             time.sleep(0.5)
         # After generation, load the newly created file
         conversion_files = sorted(
-            glob(os.path.join(conversion_logs_path, '*.tsv')),
+            glob(os.path.join(logPath, '*.tsv')),
             key=os.path.getctime
         )
         print(f"Found conversion files: {conversion_files}")
