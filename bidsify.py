@@ -1033,6 +1033,8 @@ def load_conversion_table(config: dict):
     # Load the most recent conversion table from config
     logPath = setLogPath(config)
     conversion_file = config.get('Conversion_file', 'bids_conversion.tsv')
+    if conversion_file == '':
+        conversion_file = 'bids_conversion.tsv'
 
     if not os.path.exists(logPath):
         os.makedirs(logPath, exist_ok=True)
