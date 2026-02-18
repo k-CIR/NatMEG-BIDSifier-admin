@@ -20,7 +20,7 @@ import tempfile
 import subprocess
 import asyncio
 from uuid import uuid4
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import os
 import yaml
 from typing import Optional
@@ -155,6 +155,42 @@ def _normalize_config_file(path: str) -> None:
         return
 
 
+def _load_config_dict(path: str) -> Optional[dict]:
+    try:
+        with open(path, 'r', encoding='utf8') as f:
+            obj = yaml.safe_load(f)
+    except Exception:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _cleanup_paths(paths) -> None:
+    for p in paths:
+        try:
+            if p and os.path.exists(p):
+                os.unlink(p)
+        except Exception:
+            pass
+
+
+def _resolve_config_source(config_path: Optional[str], config_yaml: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[JSONResponse]]:
+    if config_path:
+        safe = _safe_path(config_path)
+        if not safe or not os.path.exists(safe):
+            return None, None, JSONResponse({ 'error': 'invalid or missing config_path' }, status_code=400)
+        fd, cfg_tmp = tempfile.mkstemp(suffix='.yml', prefix='natmeg_config_', dir=USER_TEMP_DIR)
+        os.close(fd)
+        shutil.copy2(safe, cfg_tmp)
+        try:
+            _normalize_config_file(cfg_tmp)
+        except Exception:
+            pass
+        return cfg_tmp, cfg_tmp, None
+    if config_yaml:
+        return _write_temp_config(config_yaml), None, None
+    return None, None, JSONResponse({ 'error': 'no config provided' }, status_code=400)
+
+
 def _find_bidsify():
     # Try local repository first, then packaged resources
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -200,35 +236,19 @@ async def api_analyze(config: RawConfig):
     cfg_src = None
     cfg_tmp = None
     try:
-        if config.config_path:
-            safe = _safe_path(config.config_path)
-            if not safe or not os.path.exists(safe):
-                return JSONResponse({ 'error': 'invalid or missing config_path' }, status_code=400)
-            # copy to temp so execution uses a snapshot
-            fd, cfg_tmp = tempfile.mkstemp(suffix='.yml', prefix='natmeg_config_', dir=USER_TEMP_DIR)
-            os.close(fd)
-            import shutil
-            shutil.copy2(safe, cfg_tmp)
-            cfg_src = cfg_tmp
-            # normalize the copied server file so fields like Tasks are represented
-            # in the expected shapes (lists etc) before running
-            try:
-                _normalize_config_file(cfg_tmp)
-            except Exception:
-                pass
-        elif config.config_yaml:
-            cfg_src = _write_temp_config(config.config_yaml)
-        else:
-            return JSONResponse({ 'error': 'no config provided' }, status_code=400)
+        cfg_src, cfg_tmp, err = _resolve_config_source(config.config_path, config.config_yaml)
+        if err:
+            return err
+
+        # Early validation: config must be a dict at top level.
+        if not _load_config_dict(cfg_src):
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({ 'error': 'invalid config (expected mapping at top level)' }, status_code=400)
 
         out = _run_bidsify(['--analyse'], cfg_src)
         return JSONResponse(out)
     finally:
-        try:
-            if cfg_tmp and os.path.exists(cfg_tmp):
-                os.unlink(cfg_tmp)
-        except Exception:
-            pass
+        _cleanup_paths([cfg_tmp])
 
 
 
@@ -238,32 +258,19 @@ async def api_run(config: RawConfig):
     cfg_src = None
     cfg_tmp = None
     try:
-        if config.config_path:
-            safe = _safe_path(config.config_path)
-            if not safe or not os.path.exists(safe):
-                return JSONResponse({ 'error': 'invalid or missing config_path' }, status_code=400)
-            fd, cfg_tmp = tempfile.mkstemp(suffix='.yml', prefix='natmeg_config_', dir=USER_TEMP_DIR)
-            os.close(fd)
-            import shutil
-            shutil.copy2(safe, cfg_tmp)
-            cfg_src = cfg_tmp
-            try:
-                _normalize_config_file(cfg_tmp)
-            except Exception:
-                pass
-        elif config.config_yaml:
-            cfg_src = _write_temp_config(config.config_yaml)
-        else:
-            return JSONResponse({ 'error': 'no config provided' }, status_code=400)
+        cfg_src, cfg_tmp, err = _resolve_config_source(config.config_path, config.config_yaml)
+        if err:
+            return err
+
+        # Early validation: config must be a dict at top level.
+        if not _load_config_dict(cfg_src):
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({ 'error': 'invalid config (expected mapping at top level)' }, status_code=400)
 
         out = _run_bidsify(['--run'], cfg_src)
         return JSONResponse(out)
     finally:
-        try:
-            if cfg_tmp and os.path.exists(cfg_tmp):
-                os.unlink(cfg_tmp)
-        except Exception:
-            pass
+        _cleanup_paths([cfg_tmp])
 
 
 @app.post('/api/report')
@@ -271,32 +278,19 @@ async def api_report(config: RawConfig):
     cfg_src = None
     cfg_tmp = None
     try:
-        if config.config_path:
-            safe = _safe_path(config.config_path)
-            if not safe or not os.path.exists(safe):
-                return JSONResponse({ 'error': 'invalid or missing config_path' }, status_code=400)
-            fd, cfg_tmp = tempfile.mkstemp(suffix='.yml', prefix='natmeg_config_', dir=USER_TEMP_DIR)
-            os.close(fd)
-            import shutil
-            shutil.copy2(safe, cfg_tmp)
-            cfg_src = cfg_tmp
-            try:
-                _normalize_config_file(cfg_tmp)
-            except Exception:
-                pass
-        elif config.config_yaml:
-            cfg_src = _write_temp_config(config.config_yaml)
-        else:
-            return JSONResponse({ 'error': 'no config provided' }, status_code=400)
+        cfg_src, cfg_tmp, err = _resolve_config_source(config.config_path, config.config_yaml)
+        if err:
+            return err
+
+        # Early validation: config must be a dict at top level.
+        if not _load_config_dict(cfg_src):
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({ 'error': 'invalid config (expected mapping at top level)' }, status_code=400)
 
         out = _run_bidsify(['--report'], cfg_src)
         return JSONResponse(out)
     finally:
-        try:
-            if cfg_tmp and os.path.exists(cfg_tmp):
-                os.unlink(cfg_tmp)
-        except Exception:
-            pass
+        _cleanup_paths([cfg_tmp])
 
 
 @app.get('/api/ping')
@@ -541,10 +535,10 @@ async def api_list_dir(payload: Dict[str, Any]):
                         # Check if the item is accessible
                         if os.access(ap, os.R_OK):
                             try:
-                            stat_info = os.stat(ap)
-                            mtime = int(stat_info.st_mtime)
-                        except:
-                            mtime = None
+                                stat_info = os.stat(ap)
+                                mtime = int(stat_info.st_mtime)
+                            except:
+                                mtime = None
                         item = { 'name': name, 'path': item_path, 'is_dir': True, 'mtime': mtime }
                         if calculate_size:
                             item['size'] = _get_dir_size(ap, max_recursion_depth=2)
@@ -557,10 +551,10 @@ async def api_list_dir(payload: Dict[str, Any]):
                     # Try to access each user directory
                     if os.access(ap, os.R_OK):
                         try:
-                        stat_info = os.stat(ap)
-                        mtime = int(stat_info.st_mtime)
-                    except:
-                        mtime = None
+                            stat_info = os.stat(ap)
+                            mtime = int(stat_info.st_mtime)
+                        except:
+                            mtime = None
                     item = { 'name': name, 'path': item_path, 'is_dir': True, 'mtime': mtime }
                     if calculate_size:
                         item['size'] = _get_dir_size(ap, max_recursion_depth=3)
@@ -663,22 +657,14 @@ async def create_job(req: JobRequest):
     # carbon-copy (temp file) so the execution uses an immutable snapshot.
     cfg_path = None
     cfg_temp_copy = None
-    if req.config_path:
-        safe = _safe_path(req.config_path)
-        if not safe or not os.path.exists(safe):
-            return JSONResponse({ 'error': 'invalid or missing config_path' }, status_code=400)
-        fd, cfg_temp_copy = tempfile.mkstemp(suffix='.yml', prefix='natmeg_config_', dir=USER_TEMP_DIR)
-        os.close(fd)
-        shutil.copy2(safe, cfg_temp_copy)
-        try:
-            _normalize_config_file(cfg_temp_copy)
-        except Exception:
-            pass
-        cfg_path = cfg_temp_copy
-    elif req.config_yaml:
-        cfg_path = _write_temp_config(req.config_yaml)
-    else:
-        return JSONResponse({ 'error': 'no config provided' }, status_code=400)
+    cfg_path, cfg_temp_copy, err = _resolve_config_source(req.config_path, req.config_yaml)
+    if err:
+        return err
+
+    # Early validation: config must be a dict at top level.
+    if not _load_config_dict(cfg_path):
+        _cleanup_paths([cfg_path, cfg_temp_copy])
+        return JSONResponse({ 'error': 'invalid config (expected mapping at top level)' }, status_code=400)
 
     JOBS[job_id] = {
         'id': job_id,
@@ -730,11 +716,7 @@ async def create_job(req: JobRequest):
     async def _background():
         try:
             # parse config to determine expected artifacts
-            try:
-                with open(cfg_path, 'r') as f:
-                    cfg_obj = yaml.safe_load(f)
-            except Exception:
-                cfg_obj = None
+            cfg_obj = _load_config_dict(cfg_path)
 
             # Inform clients about the resolved command so they can see what will run
             try:
@@ -813,15 +795,7 @@ async def create_job(req: JobRequest):
 
                 JOBS[job_id]['artifacts'] = found
         finally:
-            try:
-                os.unlink(cfg_path)
-            except Exception:
-                pass
-            try:
-                if cfg_temp_copy and os.path.exists(cfg_temp_copy):
-                    os.unlink(cfg_temp_copy)
-            except Exception:
-                pass
+            _cleanup_paths([cfg_path, cfg_temp_copy])
 
     asyncio.create_task(_background())
     return { 'job_id': job_id }
