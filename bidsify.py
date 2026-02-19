@@ -1345,7 +1345,7 @@ def bidsify(config: dict):
             # Create BIDS path
             bids_path.update(
                 subject=subject_padded,
-                session=d['session_to'].zfill(2),
+                session=str(d['session_to']).zfill(2),
                 task=d['task'],
                 acquisition=d['acquisition'],
                 processing=d['processing'],
