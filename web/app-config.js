@@ -773,8 +773,20 @@
         const cfgEl = document.getElementById('configText');
         if (cfgEl) content = cfgEl.value;
         else content = writeFormToYaml();
-        const res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content}) });
-        const j = await res.json(); if (!res.ok) { alert('Save failed: ' + (j.error || JSON.stringify(j))); return; }
+        let res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content}) });
+        let j = await res.json();
+        if (!res.ok) {
+          // Handle file exists error
+          if (res.status === 409 && j.error === 'file_exists') {
+            const okToOverwrite = confirm(`${path} already exists. Overwrite?`);
+            if (!okToOverwrite) return;
+            res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content, force_overwrite: true}) });
+            j = await res.json();
+            if (!res.ok) { alert('Save failed: ' + (j.error || JSON.stringify(j))); return; }
+          } else {
+            alert('Save failed: ' + (j.error || JSON.stringify(j))); return;
+          }
+        }
         document.getElementById('status').textContent = `Saved ${j.path}`; originalConfigText = content; originalConfigPath = j.path || originalConfigPath; if (configSaveState) configSaveState.textContent = 'saved'; document.getElementById('saveConfigBtn').disabled = true
       } catch (err) { alert('Error saving file: ' + err.message); }
     });
@@ -821,8 +833,20 @@
       const content = JSON.stringify(contentObj, null, 2);
       try {
         try { console.log('APP: about to call fetch for dataset_description'); } catch(e){}
-        const res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ path, content }) });
-        const j = await res.json(); if (!res.ok) { alert('Save failed: ' + (j.error || JSON.stringify(j))); return; }
+        let res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ path, content }) });
+        let j = await res.json();
+        if (!res.ok) {
+          // Handle file exists error
+          if (res.status === 409 && j.error === 'file_exists') {
+            const okToOverwrite = confirm(`${path} already exists. Overwrite?`);
+            if (!okToOverwrite) return;
+            res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ path, content, force_overwrite: true }) });
+            j = await res.json();
+            if (!res.ok) { alert('Save failed: ' + (j.error || JSON.stringify(j))); return; }
+          } else {
+            alert('Save failed: ' + (j.error || JSON.stringify(j))); return;
+          }
+        }
         document.getElementById('status').textContent = `Saved ${j.path}`; if (configSaveState) configSaveState.textContent = 'saved';
       } catch (err) { alert('Error saving dataset description: ' + err.message); }
     });
@@ -1083,8 +1107,8 @@
     }
   }
 
-  // Save config programmatically (path optional)
-  async function saveConfig(savePath) {
+  // Save config programmatically (path optional, forceOverwrite for auto-save scenarios)
+  async function saveConfig(savePath, forceOverwrite = false) {
     // resolve path: explicit savePath param -> saveConfigPath input -> loadConfigPath input -> originalConfigPath
     let path = (savePath || '').trim();
     if (!path) path = (document.getElementById('saveConfigPath')?.value || '').trim();
@@ -1131,29 +1155,28 @@
       else content = writeFormToYaml();
     }
 
-    // Try saving directly. If the server rejects due to existing file, let
-    // the user choose a different path (Save As modal) and retry. This avoids
-    // pre-probing the file and the resulting 404 noise in the network console.
-    let res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content}) });
+    // Try saving directly. If forceOverwrite is true (auto-save scenario), skip conflict handling.
+    // Otherwise, if the server rejects due to existing file, let the user confirm or choose a different path.
+    let res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content, force_overwrite: forceOverwrite}) });
     let j = await res.json();
     if (!res.ok) {
       const errMsg = (j && j.error) ? String(j.error).toLowerCase() : '';
       const conflictLike = errMsg.includes('exist') || errMsg.includes('already exists') || res.status === 409 || res.status === 412;
-      if (conflictLike) {
+      if (conflictLike && !forceOverwrite) {
         // Ask user to confirm/choose alternate path using Save As modal if available
         if (typeof window.showSaveAsModal === 'function') {
           const chosen = await window.showSaveAsModal(path);
           if (!chosen) return { path, saved: false, reason: 'cancelled' };
           path = chosen.trim();
-          res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content}) });
+          res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content, force_overwrite: true}) });
           j = await res.json();
           if (!res.ok) throw new Error('Save failed: ' + (j.error || JSON.stringify(j)));
         } else {
           // fallback to native confirm behaviour
           const okToOverwrite = confirm(`${path} already exists on server. Overwrite?`);
           if (!okToOverwrite) return { path, saved: false, reason: 'cancelled' };
-          // user accepted overwrite; try saving again
-          res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content}) });
+          // user accepted overwrite; try saving again with force_overwrite flag
+          res = await fetch('/api/save-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, content, force_overwrite: true}) });
           j = await res.json();
           if (!res.ok) throw new Error('Save failed: ' + (j.error || JSON.stringify(j)));
         }

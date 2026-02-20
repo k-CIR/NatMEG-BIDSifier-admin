@@ -702,9 +702,20 @@
     if (window.EditorModel && typeof window.EditorModel.modelToTsv === 'function') tsv = window.EditorModel.modelToTsv(merged);
     else tsv = [merged.headers.join('\t')].concat(merged.rows.map(r => r.join('\t'))).join('\n');
     try {
-      const res = await fetch('/api/save-file', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path, content: tsv}) });
-      const j = await res.json();
-      if (!res.ok) { alert('Save failed: ' + (j.error || JSON.stringify(j))); return; }
+      let res = await fetch('/api/save-file', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path, content: tsv}) });
+      let j = await res.json();
+      if (!res.ok) {
+        // Handle file exists error
+        if (res.status === 409 && j.error === 'file_exists') {
+          const okToOverwrite = confirm(`${path} already exists. Overwrite?`);
+          if (!okToOverwrite) return;
+          res = await fetch('/api/save-file', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path, content: tsv, force_overwrite: true}) });
+          j = await res.json();
+          if (!res.ok) { alert('Save failed: ' + (j.error || JSON.stringify(j))); return; }
+        } else {
+          alert('Save failed: ' + (j.error || JSON.stringify(j))); return;
+        }
+      }
       // update the stored original/full data to reflect the saved state
       fullEditorData = { headers: JSON.parse(JSON.stringify(merged.headers)), rows: JSON.parse(JSON.stringify(merged.rows)), filename: currentEditorData.filename };
       originalEditorData = { headers: JSON.parse(JSON.stringify(fullEditorData.headers)), rows: JSON.parse(JSON.stringify(fullEditorData.rows)), filename: fullEditorData.filename };
@@ -734,7 +745,8 @@
           const saveConfigPath = document.getElementById('saveConfigPath')?.value || 
                                 document.getElementById('loadConfigPath')?.value || '';
           console.log('[AppEditor] Auto-saving config with path:', saveConfigPath);
-          await window.AppConfig.saveConfig(saveConfigPath);
+          // Use forceOverwrite=true for auto-save to avoid prompting user
+          await window.AppConfig.saveConfig(saveConfigPath, true);
         }
       } catch(e) { console.warn('Config auto-save after table save failed:', e); }
       
@@ -926,13 +938,20 @@
               console.log('[AppEditor] Updated conversion path to:', path);
             }
             
-            // Auto-save config with the new path
+            // Auto-save config with the new path only if a config path is available
+            // and the config is actually saved/loaded (not a new unsaved config)
             try {
               if (window.AppConfig && typeof window.AppConfig.saveConfig === 'function') {
                 const saveConfigPath = document.getElementById('saveConfigPath')?.value || 
                                       document.getElementById('loadConfigPath')?.value || '';
-                console.log('[AppEditor] Auto-saving config after load with path:', saveConfigPath);
-                await window.AppConfig.saveConfig(saveConfigPath);
+                // Only auto-save if we have a valid path and the config was previously saved
+                if (saveConfigPath && window.AppConfig.isConfigSaved && window.AppConfig.isConfigSaved()) {
+                  console.log('[AppEditor] Auto-saving config after table load with path:', saveConfigPath);
+                  // Use forceOverwrite=true for auto-save to avoid prompting user
+                  await window.AppConfig.saveConfig(saveConfigPath, true);
+                } else {
+                  console.log('[AppEditor] Skipping auto-save: no saved config or path');
+                }
               }
             } catch(e) { console.warn('Config auto-save after table load failed:', e); }
           } else {

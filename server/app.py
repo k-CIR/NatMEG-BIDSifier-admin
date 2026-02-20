@@ -492,9 +492,18 @@ async def api_read_file(payload: Dict[str, Any]):
 async def api_save_file(payload: Dict[str, Any]):
     p = payload.get('path', '')
     content = payload.get('content', '')
+    force_overwrite = payload.get('force_overwrite', False)
     safe = _safe_path(p)
     if not safe:
         return JSONResponse({ 'error': 'invalid path (outside repo root or empty)' }, status_code=400)
+    
+    # Check if file already exists - require explicit confirmation to overwrite
+    if os.path.exists(safe) and not force_overwrite:
+        return JSONResponse(
+            { 'error': 'file_exists', 'path': p, 'abs_path': safe, 'message': 'File already exists. Set force_overwrite=true to overwrite.' },
+            status_code=409
+        )
+    
     d = os.path.dirname(safe)
     try:
         os.makedirs(d, exist_ok=True)
@@ -517,6 +526,17 @@ async def api_list_dir(payload: Dict[str, Any]):
     safe = _safe_path(p)
     if not safe:
         return JSONResponse({ 'error': 'invalid path (outside repo root or empty)' }, status_code=400)
+    
+    # If the path points to a file, use its parent directory instead
+    if os.path.isfile(safe):
+        safe = os.path.dirname(safe)
+        p = os.path.dirname(p) if p else '.'
+        # Re-validate the directory path
+        if not safe or not os.path.isdir(safe):
+            safe = _safe_path(p)
+            if not safe:
+                return JSONResponse({ 'error': 'invalid path (outside repo root or empty)' }, status_code=400)
+    
     if not os.path.isdir(safe):
         return JSONResponse({ 'error': 'directory not found', 'path': p }, status_code=404)
     try:
