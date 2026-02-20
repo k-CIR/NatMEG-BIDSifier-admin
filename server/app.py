@@ -792,6 +792,12 @@ async def create_job(req: JobRequest):
                     except Exception:
                         # ignore inaccessible paths
                         pass
+                
+                # Sort found artifacts by modification time (newest first) to surface the most relevant ones
+                try:
+                    found.sort(key=lambda fp: os.path.getmtime(fp), reverse=True)
+                except Exception:
+                    pass
 
                 JOBS[job_id]['artifacts'] = found
         finally:

@@ -814,7 +814,7 @@ def bids_path_from_rawname(file_name, date_session, config, pmap=None):
     
     # Strip prefix and zero-pad subject and session
     subj_out = subject
-    session_out = date_session.replace('ses-', '')
+    session_out = str(date_session).replace('ses-', '')
     session_out = session_out.lstrip('0').zfill(2) if len(session_out) > 1 else session_out.zfill(2)
 
     # EVALUATE IF NEEDED TO MAP PARTICIPANT/SESSION IDS
@@ -831,8 +831,8 @@ def bids_path_from_rawname(file_name, date_session, config, pmap=None):
             print('Not mapped participant/session')
             return None  # Skip unmapped participants/sessions
             
-        subj_out = pmap.loc[pmap[old_subj_id] == subject, new_subj_id].values[0].zfill(3)
-        session_out = pmap.loc[pmap[old_session] == date_session, new_session].values[0].zfill(2)
+        subj_out = str(pmap.loc[pmap[old_subj_id] == subject, new_subj_id].values[0]).zfill(3)
+        session_out = str(pmap.loc[pmap[old_session] == date_session, new_session].values[0]).zfill(2)
 
     # Determine datatype by reading file (only if not headpos/trans)
     datatype = 'meg' # Default
@@ -860,7 +860,7 @@ def bids_path_from_rawname(file_name, date_session, config, pmap=None):
             task=task,
             acquisition=acquisition,
             processing=None if proc == '' else proc,
-            run=None if run == '' else run.zfill(2),
+            run=None if run == '' else str(run).zfill(2),
             datatype=datatype,
             description=None if desc == '' else desc,
             extension=None if extension == '' else extension,
@@ -1037,6 +1037,8 @@ def load_conversion_table(config: dict):
     overwrite = config.get('Overwrite_conversion', False)
     logPath = setLogPath(config)
     conversion_file = config.get('Conversion_file', 'bids_conversion.tsv')
+    if conversion_file == '':
+        conversion_file = 'bids_conversion.tsv'
 
     if not os.path.exists(logPath):
         os.makedirs(logPath, exist_ok=True)
@@ -1335,7 +1337,7 @@ def bidsify(config: dict):
             events = None
             run = None
             if d['run']:
-                run = d['run'].zfill(2)
+                run = str(d['run']).zfill(2)
 
             if event_id:
                 with open(f"{path_BIDS}/../{event_id}", 'r') as f:
@@ -1345,7 +1347,7 @@ def bidsify(config: dict):
             # Create BIDS path
             bids_path.update(
                 subject=subject_padded,
-                session=d['session_to'].zfill(2),
+                session=str(d['session_to']).zfill(2),
                 task=d['task'],
                 acquisition=d['acquisition'],
                 processing=d['processing'],
