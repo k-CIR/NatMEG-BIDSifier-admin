@@ -914,8 +914,11 @@ def generate_new_conversion_table(config: dict, existing_table: pd.DataFrame = N
         participant, date_session, acquisition, file = job
         full_file_name = os.path.join(path_raw, participant, date_session, acquisition, file)
         
+        # Check if BIDS conversion declared as processed or skipped in existing table
         if full_file_name in processed_files:
-            return None  # Skip already processed files
+            # Second surface level check if participant exist
+            if participant in glob('sub-*', root_dir=path_BIDS):
+                return None  # Skip already processed files
         
         bids_path, info_dict = bids_path_from_rawname(full_file_name, date_session, config, pmap)
         
@@ -1031,6 +1034,7 @@ def load_conversion_table(config: dict):
         - Prints table loading information
     """
     # Load the most recent conversion table from config
+    overwrite = config.get('Overwrite_conversion', False)
     logPath = setLogPath(config)
     conversion_file = config.get('Conversion_file', 'bids_conversion.tsv')
 
@@ -1041,8 +1045,6 @@ def load_conversion_table(config: dict):
     # Check if conversion_file is a full path or just a filename
     if not os.path.isabs(conversion_file):
         conversion_file = os.path.join(logPath, conversion_file)
-        
-    overwrite = config.get('Overwrite_conversion', False)
     
     if not os.path.exists(dirname(conversion_file)):
         os.makedirs(dirname(conversion_file), exist_ok=True)
@@ -1242,7 +1244,7 @@ def bidsify(config: dict):
     participant_mapping = join(path_project, config.get('Participants_mapping_file', ''))
     logPath = setLogPath(config)
 
-    df, conversion_file, run_conversion = update_conversion_table(config, conversion_file)
+    df, conversion_file, run_conversion = update_conversion_table(config)
     
     if not run_conversion or overwrite:
         print("No new files to convert. Exiting bidsify process.")
@@ -1431,7 +1433,6 @@ def bidsify(config: dict):
     # Update BIDS processing report in JSON format for pipeline tracking
     update_bids_report(df, config)
     print(f"All files bidsified according to {conversion_file}")
-    
 
 def update_bids_report(conversion_table: pd.DataFrame, config: dict):
 
