@@ -196,13 +196,18 @@ if [[ "$cmd" == "start" ]]; then
     if command -v lsof >/dev/null 2>&1; then
       lsof -nP -iTCP:${port} -sTCP:LISTEN >/dev/null 2>&1 && return 0
     fi
-    # Try ss (Linux)
-    if command -v ss >/dev/null 2>&1; then
+    # Try ss (Linux; skip on Git Bash/Windows where it may not work reliably)
+    if command -v ss >/dev/null 2>&1 && [[ "$OSTYPE" != "msys" ]] && [[ "$OSTYPE" != "cygwin" ]]; then
       ss -ltn 2>/dev/null | grep -q ":${port} " && return 0
     fi
-    # Try netstat (Windows, fallback for Linux/macOS)
+    # Try netstat (Windows/Git Bash fallback, also works on Unix)
     if command -v netstat >/dev/null 2>&1; then
-      netstat -an 2>/dev/null | grep -i "LISTEN" | grep -q ":${port} " && return 0
+      # Handle both Unix and Windows netstat output formats
+      if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+        netstat -ano 2>/dev/null | grep -i "LISTENING" | grep -qE "\s${port}\s" && return 0
+      else
+        netstat -an 2>/dev/null | grep -i "LISTEN" | grep -q ":${port} " && return 0
+      fi
     fi
     return 1
   }
@@ -253,10 +258,14 @@ if [[ "$cmd" == "start" ]]; then
   sleep 0.5
   
   # Use ps and grep as a more portable alternative to pgrep
-  if command -v pgrep >/dev/null 2>&1; then
-    tunnel_pid=$(pgrep -f "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" | head -1)
-  else
-    tunnel_pid=$(ps aux 2>/dev/null | grep -v grep | grep "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" | awk '{print $2}' | head -1)
+  tunnel_pid=""
+  if command -v pgrep >/dev/null 2>&1 && [[ "$OSTYPE" != "msys" ]] && [[ "$OSTYPE" != "cygwin" ]]; then
+    # pgrep not reliable on Git Bash, use ps instead
+    tunnel_pid=$(pgrep -f "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" 2>/dev/null | head -1)
+  fi
+  if [[ -z "$tunnel_pid" ]]; then
+    # Fallback: use ps with better Git Bash compatibility
+    tunnel_pid=$(ps aux 2>/dev/null | grep -v grep | grep "ssh.*-L ${LOCAL_PORT}:localhost:${REMOTE_PORT}" | awk '{print $2}' | head -1 || echo "")
   fi
   if [[ -n "$tunnel_pid" ]]; then
     echo "$tunnel_pid" > "$PIDFILE"
@@ -269,9 +278,12 @@ if [[ "$cmd" == "start" ]]; then
     elif command -v xdg-open >/dev/null 2>&1; then
       # Linux
       xdg-open "http://localhost:${LOCAL_PORT}" >/dev/null 2>&1
+    elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+      # Windows/Git Bash - use cmd /c start for native Windows command
+      cmd /c start "http://localhost:${LOCAL_PORT}" 2>/dev/null || echo "Could not auto-open browser. Please open http://localhost:${LOCAL_PORT} manually."
     elif command -v start >/dev/null 2>&1; then
-      # Windows/Git Bash
-      start "http://localhost:${LOCAL_PORT}"
+      # Fallback start command
+      start "http://localhost:${LOCAL_PORT}" 2>/dev/null || echo "Could not auto-open browser. Please open http://localhost:${LOCAL_PORT} manually."
     else
       echo "Could not auto-open browser. Please open http://localhost:${LOCAL_PORT} manually."
     fi
@@ -406,7 +418,21 @@ done
 echo " OK"
 
 # check local port availability
-if ss -ltn | grep -q ":${LOCAL_PORT} "; then
+if command -v ss >/dev/null 2>&1 && [[ "$OSTYPE" != "msys" ]] && [[ "$OSTYPE" != "cygwin" ]]; then
+  # Use ss if available and not on Windows
+  PORT_CHECK=$(ss -ltn 2>/dev/null | grep -q ":${LOCAL_PORT} " && echo "in_use" || echo "free")
+elif command -v netstat >/dev/null 2>&1; then
+  # Use netstat as fallback
+  if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    PORT_CHECK=$(netstat -ano 2>/dev/null | grep -i "LISTENING" | grep -qE "\s${LOCAL_PORT}\s" && echo "in_use" || echo "free")
+  else
+    PORT_CHECK=$(netstat -an 2>/dev/null | grep -i "LISTEN" | grep -q ":${LOCAL_PORT} " && echo "in_use" || echo "free")
+  fi
+else
+  PORT_CHECK="free"
+fi
+
+if [[ "$PORT_CHECK" == "in_use" ]]; then
   echo "Local port ${LOCAL_PORT} appears to be in use. Pick a free port or stop the process currently listening on ${LOCAL_PORT}."
   read -rp "Use alternate local port (e.g. 18080) or press Ctrl-C to abort: " NEWPORT
   if [[ -n "$NEWPORT" ]]; then
