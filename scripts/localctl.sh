@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-USER_RUNTIME_DIR="$REPO_ROOT/.connect_logs"
+USER_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache/natmeg}"
 mkdir -p "$USER_RUNTIME_DIR/connect"
 PIDFILE="$USER_RUNTIME_DIR/.tunnel.pid"
 PORTFILE="$USER_RUNTIME_DIR/.tunnel.port"
@@ -37,7 +37,7 @@ Simple helper that:
   - runs ./scripts/serverctl.sh start on the remote host
   - waits for the remote /api/ping to respond
   - sets up an SSH tunnel that forwards remote:REMOTE_PORT -> local:LOCAL_PORT
-  - writes the tunnel PID to .tunnel.pid in the repo root
+  - writes tunnel state files to $HOME/.cache/natmeg (or $XDG_RUNTIME_DIR if set)
   - by default, auto-selects a free remote port (range 18080-18150) and records it in .tunnel.port
 
 If password-less SSH keys are not available you will be prompted for a password
@@ -171,7 +171,8 @@ if [[ "$cmd" == "start" ]]; then
   # ensure remote server is started
   echo "Starting remote server (via serverctl.sh start)..."
   # pass --port to remote serverctl so multiple users can run concurrently
-  run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh start --port ${REMOTE_PORT}" || {
+  # Handle both repo structures: /path/to/NatMEG-BIDSifier/scripts/serverctl.sh and /path/to/NatMEG-BIDSifier/shared/admin/scripts/serverctl.sh
+  run_ssh_cmd "cd \"${REMOTE_REPO}\" && (if [ -f ./scripts/serverctl.sh ]; then ./scripts/serverctl.sh start --port ${REMOTE_PORT}; elif [ -f ./shared/admin/scripts/serverctl.sh ]; then ./shared/admin/scripts/serverctl.sh start --port ${REMOTE_PORT}; else echo 'Could not find serverctl.sh'; exit 1; fi)" || {
     echo "Remote server start failed (check credentials or remote logs)"; exit 1
   }
 
@@ -309,7 +310,7 @@ if [[ "$cmd" == "status" ]]; then
   fi
 
   echo "Remote server status (serverctl.sh status):"
-  run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh status --port ${REMOTE_PORT}" || echo "Failed to query remote server status"
+  run_ssh_cmd "cd \"${REMOTE_REPO}\" && (if [ -f ./scripts/serverctl.sh ]; then ./scripts/serverctl.sh status --port ${REMOTE_PORT}; elif [ -f ./shared/admin/scripts/serverctl.sh ]; then ./shared/admin/scripts/serverctl.sh status --port ${REMOTE_PORT}; else echo 'Could not find serverctl.sh'; exit 1; fi)" || echo "Failed to query remote server status"
   exit 0
 fi
 
@@ -332,7 +333,7 @@ if [[ "$cmd" == "stop" ]]; then
 
   read -rp "Stop remote server as well? [y/N]: " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
-    run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh stop --port ${REMOTE_PORT}" || echo "Remote server stop failed"
+    run_ssh_cmd "cd \"${REMOTE_REPO}\" && (if [ -f ./scripts/serverctl.sh ]; then ./scripts/serverctl.sh stop --port ${REMOTE_PORT}; elif [ -f ./shared/admin/scripts/serverctl.sh ]; then ./shared/admin/scripts/serverctl.sh stop --port ${REMOTE_PORT}; else echo 'Could not find serverctl.sh'; exit 1; fi)" || echo "Remote server stop failed"
   fi
   exit 0
 fi
@@ -396,7 +397,7 @@ if [[ "$cmd" == "cleanup" ]]; then
     echo "Invalid port number"; exit 1
   fi
   echo "Finding and stopping server on port $PORT_TO_STOP..."
-  run_ssh_cmd "cd \"${REMOTE_REPO}\" && ./scripts/serverctl.sh stop --port ${PORT_TO_STOP}" || {
+  run_ssh_cmd "cd \"${REMOTE_REPO}\" && (if [ -f ./scripts/serverctl.sh ]; then ./scripts/serverctl.sh stop --port ${PORT_TO_STOP}; elif [ -f ./shared/admin/scripts/serverctl.sh ]; then ./shared/admin/scripts/serverctl.sh stop --port ${PORT_TO_STOP}; else echo 'Could not find serverctl.sh'; exit 1; fi)" || {
     echo "Failed to stop via serverctl, trying to find process directly..."
     run_ssh_cmd "pkill -f 'uvicorn.*:${PORT_TO_STOP}' && echo 'Process killed' || echo 'No process found on port ${PORT_TO_STOP}'"
   }

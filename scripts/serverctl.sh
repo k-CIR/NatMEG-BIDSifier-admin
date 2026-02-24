@@ -27,8 +27,8 @@ Examples:
 
 Notes:
   - Uses .venv/bin/python if available, falls back to system python
-  - Logs written to ~/natmeg-server-{PORT}.log
-  - Writes pidfile to .server.{PORT}.pid in repo root
+  - Logs written to $HOME/.cache/natmeg/natmeg-server-{PORT}.log (or $XDG_RUNTIME_DIR if set)
+  - Writes pidfile to $HOME/.cache/natmeg/.server.{PORT}.pid (or $XDG_RUNTIME_DIR if set)
   - Browser auto-opens when binding to localhost (macOS/Linux/Windows)
   - Refuses to start if port is already in use
 EOF
@@ -38,7 +38,7 @@ EOF
 if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then usage; fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-USER_RUNTIME_DIR="$REPO_ROOT/.connect_logs"
+USER_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache/natmeg}"
 mkdir -p "$USER_RUNTIME_DIR/connect"
 # Defaults (can be overridden via flags or environment)
 HOST="${HOST:-127.0.0.1}"
