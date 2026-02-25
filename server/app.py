@@ -29,6 +29,9 @@ import sys
 
 app = FastAPI(title="NatMEG-BIDSifier Server")
 
+# Conversion table status options (used by the UI/editor and reports).
+CONVERSION_STATUS_OPTIONS = ('run', 'check', 'processed', 'skip', 'missing')
+
 # Root path for server-side file operations — keep inside repo root to avoid
 # exposing arbitrary system files. All read/write/list operations will be
 # constrained under this directory for safety.

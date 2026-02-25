@@ -489,7 +489,7 @@
         const key = (headers[ci]||'').toLowerCase();
         const cls = colClassName(headers[ci]);
         if (key === 'status') {
-          return `\n    <td class="col-${cls}"><select data-row="${ri}" data-col="${ci}"><option value="">--</option><option value="run">run</option><option value="check">check</option><option value="processed">processed</option><option value="skip">skip</option></select></td>`;
+          return `\n    <td class="col-${cls}"><select data-row="${ri}" data-col="${ci}"><option value="">--</option><option value="run">run</option><option value="check">check</option><option value="processed">processed</option><option value="skip">skip</option><option value="missing">missing</option></select></td>`;
         }
         if (key === 'task' || key === 'run' || key === 'split') {
           return `\n    <td class="col-${cls}"><input data-row="${ri}" data-col="${ci}" value="${escapeHtml(cell)}"></td>`;
@@ -608,11 +608,11 @@
       selects.forEach(s => {
         const r = parseInt(s.dataset.row, 10);
         const cur = (currentEditorData.rows[r][statusIdx] || '').toLowerCase(); s.value = cur || '';
-        const rowEl = container.querySelector(`tr[data-row='${r}']`); if (rowEl) { rowEl.classList.remove('status-run','status-check','status-processed','status-skip'); if (cur) rowEl.classList.add('status-' + cur.replace(/[^a-z0-9_-]/g,'')); }
+        const rowEl = container.querySelector(`tr[data-row='${r}']`); if (rowEl) { rowEl.classList.remove('status-run','status-check','status-processed','status-skip','status-missing'); if (cur) rowEl.classList.add('status-' + cur.replace(/[^a-z0-9_-]/g,'')); }
         s.addEventListener('change', () => {
           const val = s.value || '';
           currentEditorData.rows[r][statusIdx] = val; manualStatusChanges.add(r); modifiedRows.add(r);
-          const row = container.querySelector(`tr[data-row='${r}']`); if (row) { row.classList.remove('status-run','status-check','status-processed','status-skip'); if (val) row.classList.add('status-' + val.replace(/[^a-z0-9_-]/g,'')); }
+          const row = container.querySelector(`tr[data-row='${r}']`); if (row) { row.classList.remove('status-run','status-check','status-processed','status-skip','status-missing'); if (val) row.classList.add('status-' + val.replace(/[^a-z0-9_-]/g,'')); }
           if (document.getElementById('saveTableServer')) document.getElementById('saveTableServer').disabled = false; if (document.getElementById('downloadTable')) document.getElementById('downloadTable').disabled = false;
         });
       });
