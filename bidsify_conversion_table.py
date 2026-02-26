@@ -44,6 +44,10 @@ def _normalize_table(df: pd.DataFrame) -> pd.DataFrame:
     for col in CONVERSION_COLUMNS:
         if col not in df.columns:
             df[col] = None
+    
+    # Fill any empty/NaN status values with 'error'
+    if 'status' in df.columns:
+        df['status'] = df['status'].fillna('error')
 
     return df[CONVERSION_COLUMNS]
 

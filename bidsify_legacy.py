@@ -1336,10 +1336,10 @@ def bidsify(config: dict):
             event_id = d['event_id']
             events = None
             run = None
-            if d['run']:
+            if pd.notna(d['run']) and d['run'] != '':
                 run = str(d['run']).zfill(2)
 
-            if event_id:
+            if pd.notna(event_id) and event_id:
                 with open(f"{path_BIDS}/../{event_id}", 'r') as f:
                     event_id = json.load(f)
                 events = mne.find_events(raw)
@@ -1349,9 +1349,9 @@ def bidsify(config: dict):
                 subject=subject_padded,
                 session=str(d['session_to']).zfill(2),
                 task=d['task'],
-                acquisition=d['acquisition'],
-                processing=d['processing'],
-                description=d['description'],
+                acquisition=None if pd.isna(d['acquisition']) or d['acquisition'] == '' else d['acquisition'],
+                processing=None if pd.isna(d['processing']) or d['processing'] == '' else d['processing'],
+                description=None if pd.isna(d['description']) or d['description'] == '' else d['description'],
                 run=run
             )
             
@@ -1494,14 +1494,14 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
             entry['BIDS modification Date'] = 'Not yet created'
             
         entry['Validated'] = 'True BIDS' if exists(destination_file) and BIDSValidator().is_bids(bids_file) else 'False BIDS'
-        entry['Participant'] = row['participant_to']
-        entry['Session'] = row['session_to']
-        entry['Task'] = row['task']
-        entry['Acquisition'] = row['acquisition']
-        entry['Datatype'] = row['datatype']
-        entry['Processing'] = row['processing'] if row['processing'] else 'N/A'
-        entry['Splits'] = row['split'] if row['split'] else 'N/A'
-        entry['Conversion Status'] = row['status']
+        entry['Participant'] = row['participant_to'] if pd.notna(row['participant_to']) else 'N/A'
+        entry['Session'] = row['session_to'] if pd.notna(row['session_to']) else 'N/A'
+        entry['Task'] = row['task'] if pd.notna(row['task']) else 'N/A'
+        entry['Acquisition'] = row['acquisition'] if pd.notna(row['acquisition']) and row['acquisition'] else 'N/A'
+        entry['Datatype'] = row['datatype'] if pd.notna(row['datatype']) else 'N/A'
+        entry['Processing'] = row['processing'] if pd.notna(row['processing']) and row['processing'] else 'N/A'
+        entry['Splits'] = row['split'] if pd.notna(row['split']) and row['split'] else 'N/A'
+        entry['Conversion Status'] = row['status'] if pd.notna(row['status']) else 'error'
         entry['timestamp'] = datetime.now().isoformat()
 
         return entry
@@ -1676,6 +1676,7 @@ def main(config:str=None):
     if args.analyse:
         print("Generating conversion table only")
         conversion_table, conversion_file, run_conversion = update_conversion_table(config)
+        conversion_table['status'] = conversion_table['status'].fillna('error')
         conversion_table.to_csv(conversion_file, sep='\t', index=False)
         print(f"Conversion table saved to: {conversion_file}")
     

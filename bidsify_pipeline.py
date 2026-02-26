@@ -25,7 +25,7 @@ from bidsify_utils import setLogPath
 mne.set_log_level('WARNING')
 
 
-def bidsify(config: dict, force_scan: bool = False, conversion_table=None, conversion_file=None):
+def bidsify(config: dict, conversion_table=None, conversion_file=None, force_scan: bool = False, verbose: bool = False):
     """
     Main function to convert raw MEG/EEG data to BIDS format.
     """
@@ -91,7 +91,8 @@ def bidsify(config: dict, force_scan: bool = False, conversion_table=None, conve
     else:
         process_mask = ~df['status'].isin(['processed', 'skip', 'missing'])
 
-    status_counts = df['status'].fillna('').value_counts().to_dict()
+    df['status'] = df['status'].fillna('error')
+    status_counts = df['status'].value_counts().to_dict()
     n_files_to_process = int(process_mask.sum())
     print(
         "Run summary: total={total} to_process={to_process} run={run} check={check} processed={processed} skip={skip} missing={missing} error={error}".format(
@@ -121,7 +122,12 @@ def bidsify(config: dict, force_scan: bool = False, conversion_table=None, conve
     for i, d in df[process_mask].iterrows():
         try:
             pcount += 1
-            print(f"Processing file {pcount}/{n_files_to_process} [{d['status']}]: {d['raw_name']}")
+            if verbose:
+                print(f"Processing file {pcount}/{n_files_to_process} [{d['status']}]: {d['raw_name']}")
+                print(f"  Raw file: {d['raw_path']}/{d['raw_name']}")
+                print(f"  Participant: {d['participant_from']} -> {d['participant_to']}, Session: {d['session_from']} -> {d['session_to']}")
+                print(f"  Task: {d['task']}, Acquisition: {d['acquisition']}, Processing: {d['processing']}, Description: {d['description']}, Run: {d['run']}")
+
             pbar.update(1)
 
             bids_path = None
@@ -135,26 +141,39 @@ def bidsify(config: dict, force_scan: bool = False, conversion_table=None, conve
                 pmap
             )
 
+            if verbose:
+                print(f"  Initial BIDS path directory: {bids_path.directory}")
+                print(f"  Initial BIDS path basename: {bids_path.basename}")
+
             event_id = d['event_id']
             events = None
             run = None
-            if d['run']:
+            if pd.notna(d['run']) and d['run'] != '':
                 run = str(d['run']).zfill(2)
 
-            if event_id:
+            if pd.notna(event_id) and event_id:
                 with open(f"{path_BIDS}/../{event_id}", 'r') as f:
                     event_id = json.load(f)
                 events = mne.find_events(raw)
+
+            if verbose:
+                acq_val = None if pd.isna(d['acquisition']) or d['acquisition'] == '' else d['acquisition']
+                proc_val = None if pd.isna(d['processing']) or d['processing'] == '' else d['processing']
+                desc_val = None if pd.isna(d['description']) or d['description'] == '' else d['description']
+                print(f"  Updating BIDS path with: task={d['task']}, run={run}, acq={acq_val}, proc={proc_val}, desc={desc_val}")
 
             bids_path.update(
                 subject=subject_padded,
                 session=str(d['session_to']).zfill(2),
                 task=d['task'],
-                acquisition=d['acquisition'],
-                processing=d['processing'],
-                description=d['description'],
+                acquisition=None if pd.isna(d['acquisition']) or d['acquisition'] == '' else d['acquisition'],
+                processing=None if pd.isna(d['processing']) or d['processing'] == '' else d['processing'],
+                description=None if pd.isna(d['description']) or d['description'] == '' else d['description'],
                 run=run
             )
+
+            if verbose:
+                print(f"  Final BIDS path: {bids_path.fpath}")
 
             if bids_path.description and 'trans' in bids_path.description:
                 trans = mne.read_trans(raw_file, verbose='error')
@@ -214,6 +233,13 @@ def bidsify(config: dict, force_scan: bool = False, conversion_table=None, conve
 
         except Exception as e:
             print(f"Error processing file {d['raw_name']}: {e}")
+            if verbose:
+                import traceback
+                print(f"  Exception details:")
+                print(f"    Task: {d['task']}, Run: {d['run']}, Acquisition: {d['acquisition']}")
+                print(f"    Processing: {d['processing']}, Description: {d['description']}")
+                print(f"  Full traceback:")
+                traceback.print_exc()
             df.at[i, 'status'] = 'error'
 
         df.at[i, 'time_stamp'] = ts
@@ -383,14 +409,14 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
             entry['BIDS modification Date'] = 'Not yet created'
 
         entry['Validated'] = 'True BIDS' if exists(destination_file) and BIDSValidator().is_bids(bids_file) else 'False BIDS'
-        entry['Participant'] = row['participant_to']
-        entry['Session'] = row['session_to']
-        entry['Task'] = row['task']
-        entry['Acquisition'] = row['acquisition']
-        entry['Datatype'] = row['datatype']
-        entry['Processing'] = row['processing'] if row['processing'] else 'N/A'
-        entry['Splits'] = row['split'] if row['split'] else 'N/A'
-        entry['Conversion Status'] = row['status']
+        entry['Participant'] = row['participant_to'] if pd.notna(row['participant_to']) else 'N/A'
+        entry['Session'] = row['session_to'] if pd.notna(row['session_to']) else 'N/A'
+        entry['Task'] = row['task'] if pd.notna(row['task']) else 'N/A'
+        entry['Acquisition'] = row['acquisition'] if pd.notna(row['acquisition']) and row['acquisition'] else 'N/A'
+        entry['Datatype'] = row['datatype'] if pd.notna(row['datatype']) else 'N/A'
+        entry['Processing'] = row['processing'] if pd.notna(row['processing']) and row['processing'] else 'N/A'
+        entry['Splits'] = row['split'] if pd.notna(row['split']) and row['split'] else 'N/A'
+        entry['Conversion Status'] = row['status'] if pd.notna(row['status']) else 'error'
         entry['timestamp'] = datetime.now().isoformat()
 
         return entry
@@ -512,6 +538,7 @@ def args_parser():
     parser.add_argument('--consolidate-report', action='store_true', help='Deduplicate entries in BIDS report')
     parser.add_argument('--prune-report', action='store_true', help='Remove entries for missing source files from report')
     parser.add_argument('--reindex', action='store_true', help='Force full rescan of raw files (ignore cache)')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose output for debugging')
     args = parser.parse_args()
     return args
 
@@ -556,9 +583,10 @@ def main(config: str = None):
     if args.analyse:
         print("Generating conversion table only")
         conversion_table, conversion_file, run_conversion = update_conversion_table(config, force_scan=args.reindex)
+        conversion_table['status'] = conversion_table['status'].fillna('error')
         conversion_table.to_csv(conversion_file, sep='\t', index=False)
         print(f"Conversion table saved to: {conversion_file}")
-        status_counts = conversion_table['status'].fillna('').value_counts().to_dict()
+        status_counts = conversion_table['status'].value_counts().to_dict()
         total_rows = len(conversion_table)
         print(
             "Summary: total={total} run={run} check={check} processed={processed} skip={skip} missing={missing} error={error}".format(
@@ -577,7 +605,7 @@ def main(config: str = None):
         create_dataset_description(config)
         create_proc_description(config)
         conversion_table, conversion_file = load_conversion_table(config, refresh_status=False)
-        bidsify(config, force_scan=False, conversion_table=conversion_table, conversion_file=conversion_file)
+        bidsify(config, force_scan=False, conversion_table=conversion_table, conversion_file=conversion_file, verbose=getattr(args, 'verbose', False))
         from bidsify_sidecars import update_sidecars
         update_sidecars(config)
 
