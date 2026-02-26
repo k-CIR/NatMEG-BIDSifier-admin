@@ -29,6 +29,11 @@
       if (subjects !== null) document.getElementById('stat-subjects').textContent = String(subjects);
       if (sessions !== null) document.getElementById('stat-sessions').textContent = String(sessions);
       if (tasks !== null) document.getElementById('stat-tasks').textContent = String(tasks);
+      // Show stats when data is loaded
+      if (subjects !== null || sessions !== null || tasks !== null) {
+        var statsContainer = document.getElementById('statsContainer');
+        if (statsContainer) statsContainer.classList.remove('stats-hidden');
+      }
       } catch(e) {}
       _dbg('updateStats', { subjects, sessions, tasks });
   }
@@ -206,7 +211,7 @@
     _dbg('renderTree', { rootPath, children: (Array.isArray(Object.keys(tree)) ? Object.keys(tree).slice(0,6) : null) });
   }
 
-  function clearReport(){ updateReportArea('No report yet — run Analyse or Report to generate output'); updateStats({ subjects:0, sessions:0, tasks:0 }); const tr = document.getElementById('reportTree'); if (tr) tr.innerHTML = 'No BIDS results yet'; }
+  function clearReport(){ updateReportArea('No report yet — run Analyse or Report to generate output'); const tr = document.getElementById('reportTree'); if (tr) tr.innerHTML = 'No BIDS results yet'; }
 
   // Load and render the actual BIDS directory structure as a proper file browser
   async function loadBIDSDirectory(bidsPath) {
@@ -469,6 +474,7 @@
   async function loadCandidates(candidates){
     try {
       _dbg('loadCandidates called', candidates);
+      console.log('[AppReport] loadCandidates invoked with:', candidates);
       const output = document.getElementById('reportOutput');
       if (output) { output.textContent = (output.textContent || '') + '\n[AppReport] probing candidates: ' + JSON.stringify(candidates || []) + '\n'; }
 
@@ -478,12 +484,17 @@
         const projectName = (document.getElementById('config_project_name')?.value || '').trim();
         const bids = (document.getElementById('config_bids_path')?.value || '').trim();
         const derived = [];
+        // Try project root logs first (most common)
+        if (projectRoot) derived.push(`${projectRoot.replace(/\/$/, '')}/logs/bids_results.json`);
+        // Then try project root + project name + logs
         if (projectRoot && projectName) derived.push(`${projectRoot.replace(/\/$/, '')}/${projectName}/logs/bids_results.json`);
+        // Finally try BIDS path variations
         if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))) {
           derived.push(`${bids.replace(/\/$/, '')}/logs/bids_results.json`);
           derived.push(`${bids.replace(/\/$/, '')}/bids_results.json`);
         }
         candidates = derived;
+        console.log('[AppReport] Derived candidates from config:', { projectRoot, projectName, bids, derived });
       }
 
       for (const candidate of candidates || []){
@@ -497,9 +508,20 @@
             if (window.AppReport && typeof window.AppReport.updateStats === 'function'){
               const rows = Array.isArray(obj) ? obj : (obj['Report Table'] || []);
               const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
-              const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
+              const subjectSessions = {};
+              rows.forEach(r => {
+                if (r.Participant && r.Session) {
+                  if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
+                  subjectSessions[r.Participant].add(r.Session);
+                }
+              });
+              const sessionCounts = Object.values(subjectSessions).map(s => s.size);
+              const countFreq = {};
+              let maxCount = 0, modeSessions = 0;
+              sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
               const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
-              window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
+              console.log('[AppReport] Updating stats from cached payload:', { subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
+              window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
             }
             // renderTree is now replaced by loadBIDSDirectory for a proper file browser
             // try { if (window.AppReport && typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(obj.bids_root || obj.bids_path || obj.root || obj.projectRoot || candidate, obj); } catch(e){}
@@ -523,9 +545,20 @@
             // calculate basic counts similar to config loader
             const rows = Array.isArray(obj) ? obj : (obj['Report Table'] || []);
             const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
-            const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
+            const subjectSessions = {};
+            rows.forEach(r => {
+              if (r.Participant && r.Session) {
+                if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
+                subjectSessions[r.Participant].add(r.Session);
+              }
+            });
+            const sessionCounts = Object.values(subjectSessions).map(s => s.size);
+            const countFreq = {};
+            let maxCount = 0, modeSessions = 0;
+            sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
             const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
-            window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
+            console.log('[AppReport] Updating stats from fetched data:', { subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
+            window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
           }
           // renderTree is now replaced by loadBIDSDirectory for a proper file browser
           // if (window.AppReport && typeof window.AppReport.renderTree === 'function'){
@@ -544,10 +577,10 @@
           _dbg('loadCandidates-error', { candidate, err: e });
         }
       }
-      // nothing loaded
-      if (output) output.textContent += '[AppReport] no candidates succeeded\n';
+      // nothing loaded - don't reset stats if they're already set
+      if (output) output.textContent += '[AppReport] no candidates succeeded - check config form has values and report file exists\n';
       return false;
-    } catch (e) { _dbg('loadCandidates top-level error', e); return false; }
+    } catch (e) { _dbg('loadCandidates top-level error', e); console.error('[AppReport] Top-level error in loadCandidates:', e); return false; }
   }
 
   // expose loader
@@ -569,9 +602,20 @@
             try { if (typeof window.AppReport.updateStats === 'function') {
                 const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
                 const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
-                const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
+                const subjectSessions = {};
+                rows.forEach(r => {
+                  if (r.Participant && r.Session) {
+                    if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
+                    subjectSessions[r.Participant].add(r.Session);
+                  }
+                });
+                const sessionCounts = Object.values(subjectSessions).map(s => s.size);
+                const countFreq = {};
+                let maxCount = 0, modeSessions = 0;
+                sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
                 const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
-                window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
+                console.log('[AppReport] Immediate-apply updating stats:', { subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
+                window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
               } } catch(e){}
             // renderTree is now replaced by loadBIDSDirectory for a proper file browser
             // try { if (typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(cached.bids_root || cached.bids_path || cached.root || cached.projectRoot || candidate, cached); } catch(e){}
@@ -581,8 +625,8 @@
           }
         } else if (Array.isArray(window._lastReportCandidates) && window._lastReportCandidates.length) {
           _dbg('immediate-apply candidates', window._lastReportCandidates);
-          // Disabled: Don't auto-load report data - we now use BIDS directory browser instead
-          // try { await loadCandidates(window._lastReportCandidates); } catch(e){}
+          // Load report data for stats
+          try { await loadCandidates(window._lastReportCandidates); } catch(e){ _dbg('loadCandidates failed', e); }
           // do not auto-open report view when applying candidates immediately
           try { window._lastReportCandidates = []; } catch(e){}
         }
@@ -629,7 +673,7 @@
         const _sbd = document.getElementById('activeViewBadge'); if (_sbd) _sbd.textContent = 'view: ' + short;
       }
 
-      // Auto-load BIDS directory when report view is opened
+      // Auto-load BIDS directory and report data when report view is opened
       if (view === 'main-report' || view === 'report') {
         try {
           var configBidsPathEl = document.getElementById('config_bids_path');
@@ -637,26 +681,58 @@
           
           _dbg('Report view opened - checking for BIDS path', { bidsPath: bidsPath, element: !!configBidsPathEl });
           
-          // For testing: if test-bids flag is set and no path configured, use test path
-          if (!bidsPath && window.location.search.indexOf('test-bids') !== -1) {
-            bidsPath = '~/data/OPM-benchmarking/BIDS/';
-            _dbg('Using test BIDS path', bidsPath);
-          }
-          
-          // If no path configured, use test path by default
-          if (!bidsPath) {
-            bidsPath = '~/data/OPM-benchmarking/BIDS/';
-            _dbg('No BIDS path configured, using default test path', bidsPath);
-          }
-          
           if (bidsPath) {
-            // Use inline BIDSBrowser if available
-            if (window.BIDSBrowser && typeof window.BIDSBrowser.loadDirectory === 'function') {
-              _dbg('Auto-loading BIDS directory with inline browser', bidsPath);
-              window.BIDSBrowser.loadDirectory(bidsPath);
-            } else {
-              _dbg('BIDSBrowser not available yet, will load when button clicked');
-            }
+            // Try to load report data first for stats
+            (async function() {
+              try {
+                // First check if we have cached payloads from config loader
+                if (window._lastReportPayloads && Object.keys(window._lastReportPayloads).length) {
+                  _dbg('Using cached payloads from config loader');
+                  for (const candidate of Object.keys(window._lastReportPayloads)) {
+                    const cached = window._lastReportPayloads[candidate];
+                    if (!cached) continue;
+                    try {
+                      if (typeof window.AppReport.updateStats === 'function') {
+                        const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
+                        const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
+                        const subjectSessions = {};
+                        rows.forEach(r => {
+                          if (r.Participant && r.Session) {
+                            if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
+                            subjectSessions[r.Participant].add(r.Session);
+                          }
+                        });
+                        const sessionCounts = Object.values(subjectSessions).map(s => s.size);
+                        const countFreq = {};
+                        let maxCount = 0, modeSessions = 0;
+                        sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
+                        const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
+                        _dbg('Stats from cached payload', { subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
+                        window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
+                      }
+                    } catch(e){ _dbg('Error processing cached payload', e); }
+                  }
+                } else {
+                  // Always try to load report data, deriving candidates from config if needed
+                  _dbg('Loading report data from config paths');
+                  await loadCandidates(); // Let it derive from config
+                }
+              } catch(e) {
+                _dbg('Failed to load report data', e);
+              }
+              
+              // Use inline BIDSBrowser if available
+              if (window.BIDSBrowser && typeof window.BIDSBrowser.loadDirectory === 'function') {
+                _dbg('Auto-loading BIDS directory with inline browser', bidsPath);
+                window.BIDSBrowser.loadDirectory(bidsPath);
+              } else {
+                _dbg('BIDSBrowser not available yet, will load when button clicked');
+              }
+            })();
+          } else {
+            _dbg('No BIDS path configured - skip loading report data');
+            const output = document.getElementById('reportOutput');
+            if (output) output.textContent = (output.textContent || '') + '\n[AppReport] No BIDS path set in config; report not loaded\n';
           }
         } catch(e) { _dbg('Auto-load BIDS directory failed', e); }
       }
@@ -673,9 +749,19 @@
         if (typeof window.AppReport.updateStats === 'function') {
           const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
           const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
-          const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
+          const subjectSessions = {};
+          rows.forEach(r => {
+            if (r.Participant && r.Session) {
+              if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
+              subjectSessions[r.Participant].add(r.Session);
+            }
+          });
+          const sessionCounts = Object.values(subjectSessions).map(s => s.size);
+          const countFreq = {};
+          let maxCount = 0, modeSessions = 0;
+          sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
           const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
-          window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
+          window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
         }
         if (typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(cached));
       } catch(e) { _dbg('Load report error', e); }

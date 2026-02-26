@@ -338,7 +338,6 @@
         <h3>Results</h3>
         <div style="display:flex; gap:10px; align-items:center; margin-top:8px;"></div>
           <button id="reportBtn" class="btn">📊 Report</button>
-           <button id="loadBidsBrowserBtn" class="btn">Load BIDS Browser</button>
         <div class="flex-1"></div>
         
         <div class="card" style="margin-top:14px">
@@ -352,29 +351,31 @@
           </div>
 
           <div style="display:flex; gap:12px; margin-top:12px; align-items:flex-start;">
-            <div style="flex: 1 1 800px; min-width:320px;">
+            <div style="flex: 1; min-width:320px;">
               <h4>Summary</h4>
-              <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
+              <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;" id="statsContainer" class="stats-hidden">
                 <div style="padding:10px; border-radius:6px; border:1px solid #eee; text-align:center;">
-                  <div style="font-size:22px; font-weight:700" id="stat-subjects">0</div>
+                  <div style="font-size:22px; font-weight:700" id="stat-subjects">—</div>
                   <div style="color:#666; font-size:12px">Subjects</div>
                 </div>
                 <div style="padding:10px; border-radius:6px; border:1px solid #eee; text-align:center;">
-                  <div style="font-size:22px; font-weight:700" id="stat-sessions">0</div>
-                  <div style="color:#666; font-size:12px">Sessions</div>
+                  <div style="font-size:22px; font-weight:700" id="stat-sessions">—</div>
+                  <div style="color:#666; font-size:12px">Mode Sessions</div>
                 </div>
                 <div style="padding:10px; border-radius:6px; border:1px solid #eee; text-align:center;">
-                  <div style="font-size:22px; font-weight:700" id="stat-tasks">0</div>
-                  <div style="color:#666; font-size:12px">Tasks processed</div>
+                  <div style="font-size:22px; font-weight:700" id="stat-tasks">—</div>
+                  <div style="color:#666; font-size:12px">Tasks</div>
                 </div>
               </div>
 
               <h4 style="margin-top:12px">BIDS Browser</h4>
               <div id="bidsBrowserContainer" style="border:1px solid #eee; border-radius:6px; background:#fafafa; display:flex; flex-direction:column; min-height:400px; padding: 12px; overflow: auto;">
-                <div style="color: #999; font-size: 13px; text-align: center;">Click "Load BIDS Browser" to browse BIDS directory</div>
+                <div style="color: #999; font-size: 13px; text-align: center;">Set BIDS path in Configuration to view directory</div>
               </div>
               
               <style>
+                .stats-hidden { opacity: 0.3; }
+                .stats-hidden > div { color: #999; }
                 .bids-item:hover {
                   background-color: #f0f7ff !important;
                 }
@@ -382,28 +383,6 @@
               
               <!-- Load external BIDS Browser module -->
               <script src="app-bids-browser.js"></script>
-              
-              <!-- Attach button handler -->
-              <script>
-                (function() {
-                  var loadBtn = document.getElementById('loadBidsBrowserBtn');
-                  if (!loadBtn || !window.BIDSBrowser) return;
-                  
-                  loadBtn.addEventListener('click', function() {
-                    var configBidsPathEl = document.getElementById('config_bids_path');
-                    var bidsPath = (configBidsPathEl ? configBidsPathEl.value : '').trim();
-                    
-                    // Use test path if none configured
-                    if (!bidsPath) {
-                      bidsPath = '~/data/OPM-benchmarking/BIDS/';
-                    }
-                    
-                    if (window.BIDSBrowser && typeof window.BIDSBrowser.loadDirectory === 'function') {
-                      window.BIDSBrowser.loadDirectory(bidsPath);
-                    }
-                  });
-                })();
-              </script>
             </div>
 
             <!-- <div style="flex: 1 1 420px; min-width:360px;">

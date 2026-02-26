@@ -661,7 +661,7 @@ async def _stream_subprocess(cmd, job_id: str):
         JOBS[job_id]['status'] = 'aborted'
     else:
         JOBS[job_id]['status'] = 'completed' if code == 0 else 'failed'
-    # Notify clients about completion
+            # Notify clients about completion (internal signal only, not displayed)
     done_msg = f"__JOB_DONE__ returncode={code}\n"
     for q in list(JOBS[job_id].get('clients', [])):
         await q.put(done_msg)

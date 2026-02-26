@@ -107,7 +107,7 @@
         ws.onopen = () => { const out = _getVisibleOutputElement(); if (out) out.textContent += `\n[ws] connected to job ${jobId}\n`; // show progress immediately
           _setProgressState(action, 'start', `Running (job ${jobId})`);
         };
-      let jobDone = false; let pollTimer = null;
+      let jobDone = false; let pollTimer = null; let lastDisplayedLogIndex = -1;
       function startPollingFallback(){
         if (pollTimer) return;
         let tries = 0;
@@ -117,7 +117,14 @@
             const resp = await fetch(`/api/jobs/${jobId}/logs`);
             if (!resp.ok) return;
             const j = await resp.json();
-            (j.logs || []).forEach(l => { const out = _getVisibleOutputElement(); if (out) out.textContent += (typeof l === 'string' ? l : l.line); });
+            // Only append logs we haven't already displayed via WebSocket to avoid duplication
+            const allLogs = j.logs || [];
+            for (let i = lastDisplayedLogIndex + 1; i < allLogs.length; i++) {
+              const l = allLogs[i];
+              const out = _getVisibleOutputElement();
+              if (out) out.textContent += (typeof l === 'string' ? l : l.line);
+              lastDisplayedLogIndex = i;
+            }
 
             const sresp = await fetch(`/api/jobs/${jobId}`);
             if (sresp.ok) {
@@ -222,12 +229,18 @@
       
             ws.onmessage = async (ev) => {
               const out = _getVisibleOutputElement();
-              if (out) {
-                out.textContent += ev.data;
-                out.scrollTop = out.scrollHeight;
+              // Don't display the internal __JOB_DONE__ marker to the user
+              if (!(typeof ev.data === 'string' && ev.data.startsWith('__JOB_DONE__'))) {
+                if (out) {
+                  out.textContent += ev.data;
+                  out.scrollTop = out.scrollHeight;
+                }
+                // Track that we've displayed one more log entry (prevent polling from re-displaying it)
+                lastDisplayedLogIndex++;
               }
 
               if (typeof ev.data === 'string' && ev.data.startsWith('__JOB_DONE__')) {
+                jobDone = true;
                 // parse returncode from the message
                 let rc = null;
                 const m = ev.data.match(/returncode=(\d+)/);

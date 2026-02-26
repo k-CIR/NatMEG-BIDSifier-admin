@@ -206,8 +206,12 @@
           const projectRoot = data.root && data.project_name ? `${data.root.replace(/\/$/, '')}/${data.project_name}` : null;
           const candidates = [];
           if (projectRoot) candidates.push(`${projectRoot}/logs/${conv}`);
+          // Also try just root/logs if project_name not set
+          if (data.root && !data.project_name) candidates.push(`${data.root.replace(/\/$/, '')}/logs/${conv}`);
           // only consider BIDS path fallback when it looks path-like (contains a slash or is relative/home-style)
           if (data.bids && (data.bids.includes('/') || data.bids.startsWith('.') || data.bids.startsWith('~'))) candidates.push(`${data.bids.replace(/\/$/, '')}/conversion_logs/${conv}`);
+          
+          console.log('[AppConfig] Auto-loading conversion table from candidates:', candidates);
 
           for (const candidate of candidates) {
             try {
@@ -707,6 +711,19 @@
         await populateFormFromYaml(j.content || ''); originalConfigText = j.content || ''; originalConfigPath = j.path || originalConfigPath; originalConfigIsLocal = false; if (configSaveState) configSaveState.textContent = 'loaded'; const saveBtn = document.getElementById('saveConfigBtn'); if (saveBtn) saveBtn.disabled = true; document.getElementById('status').textContent = `Loaded ${j.path}`; try { updateAnalyzeButtonState(); } catch(e){}
       } catch (err) { alert('Error reading file: ' + err.message); }
     });
+
+    // Auto-load config when path is selected via FileBrowser
+    const loadConfigPathInput = document.getElementById('loadConfigPath');
+    if (loadConfigPathInput) {
+      loadConfigPathInput.addEventListener('change', async () => {
+        const p = loadConfigPathInput.value.trim();
+        if (p && p.endsWith('.yml') || p.endsWith('.yaml')) {
+          console.log('[AppConfig] Auto-loading config after FileBrowser selection:', p);
+          const loadBtn = document.getElementById('loadConfigBtn');
+          if (loadBtn) loadBtn.click();
+        }
+      });
+    }
 
     // Improve UX: If the requested file is missing, prompt to load the project default_config.yml
     // so users can create a new config quickly.
