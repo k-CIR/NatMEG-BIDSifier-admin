@@ -225,7 +225,7 @@ def extract_info_from_filename(file_name: str):
     # Extract participant, task, processing, datatypes and extension
     participant = re.search(r'(NatMEG_|sub-)(\d+)', file_name).group(2).zfill(4)
 
-    if len(participant.lstrip('0')) < 3:
+    if len(participant.lstrip('0')) <= 3:
         participant = participant.lstrip('0').zfill(3)
     extension = '.' + re.search(r'\.(.*)', basename(file_name)).group(1)
     datatypes = list(set([r.lower() for r in re.findall(r'(meg|raw|opm|eeg|behav)', basename(file_name), re.IGNORECASE)] +
@@ -1269,10 +1269,10 @@ def bidsify(config: dict):
     unique_participants_sessions = df[['participant_to', 'session_to', 'datatype']].drop_duplicates()
     for _, row in unique_participants_sessions.iterrows():
         
-        if len(str(row['participant_to']).lstrip('0')) >= 3:
-            subject_padded = str(row['participant_to']).zfill(4)
-        else:
+        if len(str(row['participant_to']).lstrip('0')) < 3:
             subject_padded = str(row['participant_to']).lstrip('0').zfill(3)
+        else:
+            subject_padded = str(row['participant_to']).zfill(4)
         session_padded = str(row['session_to']).zfill(2)
         bids_path = BIDSPath(
             subject=subject_padded,

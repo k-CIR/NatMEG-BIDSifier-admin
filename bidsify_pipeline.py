@@ -60,10 +60,10 @@ def bidsify(config: dict, conversion_table=None, conversion_file=None, force_sca
 
     unique_participants_sessions = df[['participant_to', 'session_to', 'datatype']].drop_duplicates()
     for _, row in unique_participants_sessions.iterrows():
-        if len(str(row['participant_to']).lstrip('0')) >= 3:
-            subject_padded = str(row['participant_to']).zfill(4)
-        else:
+        if len(str(row['participant_to']).lstrip('0')) <= 3:
             subject_padded = str(row['participant_to']).lstrip('0').zfill(3)
+        else:
+            subject_padded = str(row['participant_to']).zfill(4)
         session_padded = str(row['session_to']).zfill(2)
         bids_path = BIDSPath(
             subject=subject_padded,

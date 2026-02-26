@@ -30,7 +30,7 @@ def extract_info_from_filename(file_name: str):
 
     participant = re.search(r'(NatMEG_|sub-)(\d+)', file_name).group(2).zfill(4)
 
-    if len(participant.lstrip('0')) < 3:
+    if len(participant.lstrip('0')) <= 3:
         participant = participant.lstrip('0').zfill(3)
     extension = '.' + re.search(r'\.(.*)', basename(file_name)).group(1)
     datatypes = list(set([r.lower() for r in re.findall(r'(meg|raw|opm|eeg|behav)', basename(file_name), re.IGNORECASE)] +
