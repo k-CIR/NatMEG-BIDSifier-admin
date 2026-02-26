@@ -60,10 +60,16 @@ def bidsify(config: dict, conversion_table=None, conversion_file=None, force_sca
 
     unique_participants_sessions = df[['participant_to', 'session_to', 'datatype']].drop_duplicates()
     for _, row in unique_participants_sessions.iterrows():
-        if len(str(row['participant_to']).lstrip('0')) <= 3:
-            subject_padded = str(row['participant_to']).lstrip('0').zfill(3)
+        # Normalize participant ID: 1-99 → 012, 100-999 → 121, 1000+ → keep as is
+        participant_str = str(row['participant_to'])
+        if len(participant_str) >= 4:
+            subject_padded = participant_str
         else:
-            subject_padded = str(row['participant_to']).zfill(4)
+            num = int(participant_str.lstrip('0') or '0')
+            if num < 100:
+                subject_padded = f"{num:03d}"
+            else:
+                subject_padded = str(num)
         session_padded = str(row['session_to']).zfill(2)
         bids_path = BIDSPath(
             subject=subject_padded,
@@ -156,14 +162,25 @@ def bidsify(config: dict, conversion_table=None, conversion_file=None, force_sca
                     event_id = json.load(f)
                 events = mne.find_events(raw)
 
+            # Calculate subject_padded for THIS participant (not from the directory creation loop!)
+            participant_str = str(d['participant_to'])
+            if len(participant_str) >= 4:
+                current_subject_padded = participant_str
+            else:
+                num = int(participant_str.lstrip('0') or '0')
+                if num < 100:
+                    current_subject_padded = f"{num:03d}"
+                else:
+                    current_subject_padded = str(num)
+
             if verbose:
                 acq_val = None if pd.isna(d['acquisition']) or d['acquisition'] == '' else d['acquisition']
                 proc_val = None if pd.isna(d['processing']) or d['processing'] == '' else d['processing']
                 desc_val = None if pd.isna(d['description']) or d['description'] == '' else d['description']
-                print(f"  Updating BIDS path with: task={d['task']}, run={run}, acq={acq_val}, proc={proc_val}, desc={desc_val}")
+                print(f"  Updating BIDS path with: subject={current_subject_padded}, task={d['task']}, run={run}, acq={acq_val}, proc={proc_val}, desc={desc_val}")
 
             bids_path.update(
-                subject=subject_padded,
+                subject=current_subject_padded,
                 session=str(d['session_to']).zfill(2),
                 task=d['task'],
                 acquisition=None if pd.isna(d['acquisition']) or d['acquisition'] == '' else d['acquisition'],

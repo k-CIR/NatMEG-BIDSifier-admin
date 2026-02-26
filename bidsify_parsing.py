@@ -28,10 +28,18 @@ def extract_info_from_filename(file_name: str):
     datatypes = ['']
     extension = ''
 
-    participant = re.search(r'(NatMEG_|sub-)(\d+)', file_name).group(2).zfill(4)
+    participant = re.search(r'(NatMEG_|sub-)(\d+)', file_name).group(2)
 
-    if len(participant.lstrip('0')) <= 3:
-        participant = participant.lstrip('0').zfill(3)
+    if len(participant) >= 4:
+        # Keep 4+ digit numbers as is (e.g., 0953)
+        pass
+    else:
+        # Normalize 1-3 digit numbers: 1-99 → 012, 100-999 → 121
+        num = int(participant)
+        if num < 100:
+            participant = f"{num:03d}"
+        else:
+            participant = str(num)
     extension = '.' + re.search(r'\.(.*)', basename(file_name)).group(1)
     datatypes = list(set([r.lower() for r in re.findall(r'(meg|raw|opm|eeg|behav)', basename(file_name), re.IGNORECASE)] +
                          ['opm' if 'kaptah' in file_name else '']))
