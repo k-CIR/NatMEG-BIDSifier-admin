@@ -30,6 +30,176 @@
     return String(h).toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_\-]/g, '_').replace(/^_+|_+$/g, '');
   };
 
+  // Filter selection state (dropdowns with multi-select + cards)
+  const filterSelections = {};
+  const filterSelectIds = ['subjectFilterSelect','sessionFilterSelect','statusFilterSelect','taskFilterSelect','acquisitionFilterSelect'];
+  const filterDropdownEvents = { bound: false };
+
+  const getFilterSelectionSet = (id) => {
+    if (!filterSelections[id]) filterSelections[id] = new Set();
+    return filterSelections[id];
+  };
+
+  const getFilterLabel = (selectEl) => {
+    if (!selectEl) return 'Filter';
+    return selectEl.dataset.filterLabel || selectEl.getAttribute('aria-label') || selectEl.id || 'Filter';
+  };
+
+  const getFilterButton = (selectId) => document.getElementById(`${selectId}Btn`);
+  const getFilterMenu = (selectId) => document.getElementById(`${selectId}Menu`);
+
+  const updateFilterButtonLabel = (selectId) => {
+    const btn = getFilterButton(selectId);
+    if (!btn) return;
+    const set = getFilterSelectionSet(selectId);
+    const selectEl = document.getElementById(selectId);
+    const base = getFilterLabel(selectEl).replace(/^Filter\s*/i, '').trim();
+    if (set.size === 0) {
+      btn.textContent = base || 'Filter';
+      btn.classList.remove('has-selection');
+    } else {
+      btn.textContent = `${base || 'Filter'} (${set.size})`;
+      btn.classList.add('has-selection');
+    }
+  };
+
+  const buildFilterDropdown = (selectId) => {
+    const selectEl = document.getElementById(selectId);
+    const menuEl = getFilterMenu(selectId);
+    const btn = getFilterButton(selectId);
+    if (!selectEl || !menuEl || !btn) return;
+
+    const set = getFilterSelectionSet(selectId);
+    const options = Array.from(selectEl.options || []).filter(opt => opt.value !== '');
+    const items = options.map(opt => {
+      const checked = set.has(opt.value) ? 'checked' : '';
+      return (
+        `<label class="filter-option">` +
+        `<input type="checkbox" value="${escapeHtml(opt.value)}" ${checked}>` +
+        `<span>${escapeHtml(opt.text)}</span>` +
+        `</label>`
+      );
+    });
+    const controls = (
+      `<div class="filter-dropdown-controls">` +
+      `<button type="button" class="filter-dropdown-action" data-action="select-all">Select all</button>` +
+      `<button type="button" class="filter-dropdown-action" data-action="clear">Clear</button>` +
+      `</div>`
+    );
+    menuEl.innerHTML = (controls + items.join('')) || '<div class="filter-option-empty">No options</div>';
+    updateFilterButtonLabel(selectId);
+
+    menuEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const value = cb.value;
+        if (cb.checked) set.add(value); else set.delete(value);
+        updateFilterCards();
+        updateFilterButtonLabel(selectId);
+        renderTableFromData();
+      });
+    });
+
+    const actionButtons = menuEl.querySelectorAll('button[data-action]');
+    actionButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.getAttribute('data-action');
+        if (action === 'select-all') {
+          options.forEach(opt => set.add(opt.value));
+        }
+        if (action === 'clear') {
+          set.clear();
+        }
+        buildFilterDropdown(selectId);
+        updateFilterCards();
+        renderTableFromData();
+      });
+    });
+
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const isOpen = menuEl.classList.contains('open');
+      document.querySelectorAll('.filter-dropdown-menu.open').forEach(m => m.classList.remove('open'));
+      if (!isOpen) menuEl.classList.add('open');
+    };
+  };
+
+  const buildAllFilterDropdowns = () => {
+    filterSelectIds.forEach(buildFilterDropdown);
+    if (!filterDropdownEvents.bound) {
+      document.addEventListener('click', (ev) => {
+        const target = ev.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest('.filter-dropdown')) return;
+        document.querySelectorAll('.filter-dropdown-menu.open').forEach(m => m.classList.remove('open'));
+      });
+      filterDropdownEvents.bound = true;
+    }
+  };
+
+  const getOptionLabel = (selectEl, value) => {
+    if (!selectEl) return value;
+    const opt = Array.from(selectEl.options || []).find(o => o.value === value);
+    return opt ? opt.text : value;
+  };
+
+  const pruneFilterSelections = (selectEl, selectId) => {
+    if (!selectEl) return;
+    const valid = new Set(Array.from(selectEl.options || []).map(o => o.value));
+    const set = getFilterSelectionSet(selectId);
+    Array.from(set).forEach(v => { if (!valid.has(v)) set.delete(v); });
+  };
+
+  const updateFilterCards = () => {
+    const container = document.getElementById('filterCards');
+    if (!container) return;
+    const parts = [];
+    for (const id of filterSelectIds) {
+      const selectEl = document.getElementById(id);
+      const set = getFilterSelectionSet(id);
+      for (const val of set) {
+        const label = escapeHtml(getFilterLabel(selectEl));
+        const valLabel = escapeHtml(getOptionLabel(selectEl, val));
+        parts.push(
+          `<span class="filter-card" data-select-id="${id}" data-value="${escapeHtml(val)}">` +
+          `<span class="filter-card-label">${label}:</span>` +
+          `<span class="filter-card-value">${valLabel}</span>` +
+          `<button class="filter-card-remove" type="button" data-remove-filter="true" aria-label="Remove ${label} filter">×</button>` +
+          `</span>`
+        );
+      }
+    }
+    container.innerHTML = parts.join('');
+    const buttons = container.querySelectorAll('button[data-remove-filter]');
+    buttons.forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        const card = btn.closest('.filter-card');
+        if (!card) return;
+        const selectId = card.getAttribute('data-select-id');
+        const value = card.getAttribute('data-value');
+        if (!selectId) return;
+        const set = getFilterSelectionSet(selectId);
+        set.delete(value);
+        updateFilterCards();
+        renderTableFromData();
+      });
+    });
+  };
+
+  const handleFilterSelectChange = (selectId) => {
+    const el = document.getElementById(selectId);
+    if (!el) return;
+    const val = (el.value || '').trim();
+    const set = getFilterSelectionSet(selectId);
+    if (!val) {
+      set.clear();
+    } else {
+      set.add(val);
+    }
+    el.value = '';
+    updateFilterCards();
+    renderTableFromData();
+  };
+
   // Estimate column widths in px from headers and rows using a simple heuristic.
   // Returns an array of widths (px) aligned with headers array.
   function estimateColumnWidths(headers, rows) {
@@ -220,16 +390,33 @@
     const lower = headers.map(h => (h||'').toLowerCase());
     const idx = (name) => lower.indexOf(name);
 
-    const colValues = (colName) => {
+    // Helper for numeric sorting (handles zero-padded strings)
+    const numericSort = (a, b) => {
+      const na = parseInt(a, 10);
+      const nb = parseInt(b, 10);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return String(a).localeCompare(String(b));
+    };
+
+    const colValues = (colName, useNumericSort = false) => {
       const i = idx(colName); if (i < 0) return [];
-      const s = new Set(); rows.forEach(r => { const v = r[i]; if (v !== undefined && String(v).trim() !== '') s.add(String(v).trim()); }); return Array.from(s).sort();
+      const s = new Set(); 
+      rows.forEach(r => { 
+        const v = r[i]; 
+        if (v !== undefined && String(v).trim() !== '') s.add(String(v).trim()); 
+      }); 
+      return Array.from(s).sort(useNumericSort ? numericSort : undefined);
     };
 
     const subjectEl = document.getElementById('subjectFilterSelect'); if (subjectEl) {
-      const vals = colValues('participant_to'); subjectEl.innerHTML = '<option value="">All Subjects</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+      const vals = colValues('participant_to', true); // use numeric sort
+      subjectEl.innerHTML = '<option value="">All Subjects</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+      pruneFilterSelections(subjectEl, 'subjectFilterSelect');
     }
     const sessionEl = document.getElementById('sessionFilterSelect'); if (sessionEl) {
-      const vals = colValues('session_to'); sessionEl.innerHTML = '<option value="">All Sessions</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+      const vals = colValues('session_to', true); // use numeric sort
+      sessionEl.innerHTML = '<option value="">All Sessions</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+      pruneFilterSelections(sessionEl, 'sessionFilterSelect');
     }
     const taskEl = document.getElementById('taskFilterSelect'); if (taskEl) {
       const detectedTasks = colValues('task');
@@ -257,10 +444,17 @@
       }
 
       taskEl.innerHTML = opts.join('');
+      pruneFilterSelections(taskEl, 'taskFilterSelect');
     }
     const acqEl = document.getElementById('acquisitionFilterSelect'); if (acqEl) {
       const vals = colValues('acquisition'); acqEl.innerHTML = '<option value="">All Acquisitions</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+      pruneFilterSelections(acqEl, 'acquisitionFilterSelect');
     }
+    const statusEl = document.getElementById('statusFilterSelect'); if (statusEl) {
+      pruneFilterSelections(statusEl, 'statusFilterSelect');
+    }
+    updateFilterCards();
+    buildAllFilterDropdowns();
     updateEditorRowCount();
   }
 
@@ -413,7 +607,14 @@
     const searchEl = document.getElementById('tableSearch') || document.getElementById('editorSearchInput');
     if (searchEl) searchEl.oninput = () => renderTableFromData();
     // wire filter selects if present
-    ['subjectFilterSelect','sessionFilterSelect','statusFilterSelect','taskFilterSelect','acquisitionFilterSelect'].forEach(id => { const el = document.getElementById(id); if (el) el.onchange = () => renderTableFromData(); });
+    buildAllFilterDropdowns();
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+    if (clearFiltersBtn) clearFiltersBtn.onclick = () => {
+      filterSelectIds.forEach(id => { const set = getFilterSelectionSet(id); set.clear(); });
+      updateFilterCards();
+      buildAllFilterDropdowns();
+      renderTableFromData();
+    };
     if (document.getElementById('findReplaceBtn')) document.getElementById('findReplaceBtn').onclick = findReplaceInTable;
     if (document.getElementById('addRowBtn')) document.getElementById('addRowBtn').onclick = () => addRowToTable();
     if (document.getElementById('deleteRowsBtn')) document.getElementById('deleteRowsBtn').onclick = () => deleteSelectedRows();
@@ -447,12 +648,19 @@
     // Support both search IDs (legacy tableSearch and editorSearchInput)
     const searchEl2 = document.getElementById('tableSearch') || document.getElementById('editorSearchInput');
     const search = (searchEl2?.value || '').toLowerCase().trim();
-    // filter selects (possible values)
-    const subjectFilter = (document.getElementById('subjectFilterSelect')?.value || '').toLowerCase().trim();
-    const sessionFilter = (document.getElementById('sessionFilterSelect')?.value || '').toLowerCase().trim();
-    const statusFilter = (document.getElementById('statusFilterSelect')?.value || '').toLowerCase().trim();
-    const taskFilter = (document.getElementById('taskFilterSelect')?.value || '').toLowerCase().trim();
-    const acqFilter = (document.getElementById('acquisitionFilterSelect')?.value || '').toLowerCase().trim();
+    
+    // Helper to get selected values from filter cards (lowercased)
+    const getSelectedValues = (selectId) => {
+      const set = getFilterSelectionSet(selectId);
+      return Array.from(set).map(v => String(v).toLowerCase().trim()).filter(v => v !== '');
+    };
+    
+    const subjectFilter = getSelectedValues('subjectFilterSelect');
+    const sessionFilter = getSelectedValues('sessionFilterSelect');
+    const statusFilter = getSelectedValues('statusFilterSelect');
+    const taskFilter = getSelectedValues('taskFilterSelect');
+    const acqFilter = getSelectedValues('acquisitionFilterSelect');
+    
     const { headers, rows } = currentEditorData;
     let html = '<table class="editor-table">';
     // include colgroup so applied widths also apply on subsequent render updates
@@ -466,23 +674,39 @@
       // apply select filters: match canonical column names (case-insensitive)
       const lowerHeaders = headers.map(h => (h||'').toLowerCase());
       const getVal = (name) => { const idx = lowerHeaders.indexOf(name); return idx >= 0 ? String(r[idx] || '').toLowerCase() : ''; };
-      if (subjectFilter) { const v = getVal('participant_to'); if (v !== subjectFilter) return ''; }
-      if (sessionFilter) { const v = getVal('session_to'); if (v !== sessionFilter) return ''; }
-      if (statusFilter) { const v = getVal('status'); if (v !== statusFilter) return ''; }
-      if (taskFilter) {
+      
+      // Multi-select filter logic: if any values are selected, check if row value is in the set
+      if (subjectFilter.length > 0) { const v = getVal('participant_to'); if (!subjectFilter.includes(v)) return ''; }
+      if (sessionFilter.length > 0) { const v = getVal('session_to'); if (!sessionFilter.includes(v)) return ''; }
+      if (statusFilter.length > 0) { const v = getVal('status'); if (!statusFilter.includes(v)) return ''; }
+      
+      if (taskFilter.length > 0) {
         const v = getVal('task');
         // read config tasks from the config form and compare case-insensitively
         const cfgRaw = (document.getElementById('config_tasks')?.value || '').trim();
         const cfgTasks = cfgRaw ? cfgRaw.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean) : [];
-        if (taskFilter === '__other__' || taskFilter === '__OTHER__') {
-          // other: show rows with a task value that is not included in the config tasks
-          if (!v) return '';
-          if (cfgTasks.includes(v)) return '';
-        } else {
-          if (v !== taskFilter) return '';
+        
+        // Check if any selected filter matches
+        let taskMatches = false;
+        for (const filter of taskFilter) {
+          if (filter === '__other__') {
+            // other: show rows with a task value that is not included in the config tasks
+            if (v && !cfgTasks.includes(v)) {
+              taskMatches = true;
+              break;
+            }
+          } else {
+            if (v === filter) {
+              taskMatches = true;
+              break;
+            }
+          }
         }
+        if (!taskMatches) return '';
       }
-      if (acqFilter) { const v = getVal('acquisition'); if (v !== acqFilter) return ''; }
+      
+      if (acqFilter.length > 0) { const v = getVal('acquisition'); if (!acqFilter.includes(v)) return ''; }
+      
       // Only a subset of columns are editable. Render others as text.
       const editableSet = { status: 'select', task: 'text', run: 'text' };
       const cells = r.map((cell, ci) => {
@@ -645,7 +869,41 @@
 
   function deleteColumnFromTable() { if (!currentEditorData) return; const idx = parseInt(document.getElementById('colIndex')?.value || '', 10); if (Number.isNaN(idx) || idx < 0 || idx >= currentEditorData.headers.length) return alert('Invalid column index'); if (window.EditorModel && typeof window.EditorModel.deleteColumn === 'function') { window.EditorModel.deleteColumn(currentEditorData, idx); } else { currentEditorData.headers.splice(idx, 1); currentEditorData.rows.forEach(r => r.splice(idx, 1)); } renderTableFromData(); }
 
-  function sortTableByColumn(asc=true) { if (!currentEditorData) return; const idx = parseInt(document.getElementById('sortColIndex')?.value || '', 10); if (Number.isNaN(idx) || idx < 0 || idx >= currentEditorData.headers.length) return alert('Invalid column index'); if (window.EditorModel && typeof window.EditorModel.sortByColumn === 'function') { window.EditorModel.sortByColumn(currentEditorData, idx, asc); } else { currentEditorData.rows.sort((a,b)=>{ const av = a[idx] || ''; const bv = b[idx] || ''; if (av === bv) return 0; const cmp = av < bv ? -1 : 1; return asc ? cmp : -cmp; }); } renderTableFromData(); }
+  function sortTableByColumn(asc=true) { 
+    if (!currentEditorData) return; 
+    const idx = parseInt(document.getElementById('sortColIndex')?.value || '', 10); 
+    if (Number.isNaN(idx) || idx < 0 || idx >= currentEditorData.headers.length) return alert('Invalid column index'); 
+    
+    // Check if this column should use numeric sorting
+    const colName = (currentEditorData.headers[idx] || '').toLowerCase();
+    const numericCols = ['participant_to', 'participant', 'session_to', 'session', 'run', 'split'];
+    const useNumericSort = numericCols.includes(colName);
+    
+    if (window.EditorModel && typeof window.EditorModel.sortByColumn === 'function') { 
+      window.EditorModel.sortByColumn(currentEditorData, idx, asc); 
+    } else { 
+      currentEditorData.rows.sort((a,b)=>{ 
+        const av = a[idx] || ''; 
+        const bv = b[idx] || ''; 
+        if (av === bv) return 0;
+        
+        // Use numeric comparison for numeric columns
+        if (useNumericSort) {
+          const na = parseInt(av, 10);
+          const nb = parseInt(bv, 10);
+          if (!isNaN(na) && !isNaN(nb)) {
+            const cmp = na - nb;
+            return asc ? cmp : -cmp;
+          }
+        }
+        
+        // Fall back to string comparison
+        const cmp = av < bv ? -1 : 1; 
+        return asc ? cmp : -cmp; 
+      }); 
+    } 
+    renderTableFromData(); 
+  }
 
   function moveSelectedRows(dir) { if (!currentEditorData) return; const container = document.getElementById('tableContainer'); const boxes = Array.from(container.querySelectorAll('input[data-select-row]')).map(b => ({idx: parseInt(b.dataset.selectRow,10), checked: b.checked})).filter(x=>x.checked).map(x=>x.idx); if (boxes.length===0) return alert('No rows selected'); if (window.EditorModel && typeof window.EditorModel.moveRows === 'function') { window.EditorModel.moveRows(currentEditorData, boxes, dir); } else { const rows = currentEditorData.rows; const unique = Array.from(new Set(boxes)).sort((a,b)=> dir>0 ? b-a : a-b); for (const idx of unique) { const newIdx = idx + dir; if (newIdx < 0 || newIdx >= rows.length) continue; const [row] = rows.splice(idx,1); rows.splice(newIdx, 0, row); } } renderTableFromData(); }
 

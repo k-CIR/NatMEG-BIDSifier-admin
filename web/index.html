@@ -259,28 +259,53 @@
               <input id="editorSearchInput" placeholder="🔍 Search all fields..." class="input-wide-compact" style="min-width:260px">
               <!-- hidden file picker for loading a local TSV into the editor -->
               <input id="loadTableInput" type="file" accept=".tsv,.txt" style="display:none" aria-hidden="true">
-              <select id="statusFilterSelect" class="input-sm" aria-label="Filter status" style="min-width:100px;">
-                <option value="">All Status</option>
-                <option value="check">check</option>
-                <option value="run">run</option>
-                <option value="processed">processed</option>
-                <option value="skip">skip</option>
-                <option value="missing">missing</option>
-                <option value="error">error</option>
-              </select>
-              <select id="subjectFilterSelect" class="input-sm" aria-label="Filter subjects" style="min-width:120px;">
-                <option value="">All Subjects</option>
-              </select>
-              <select id="sessionFilterSelect" class="input-sm" aria-label="Filter sessions" style="min-width:120px;">
-                <option value="">All Sessions</option>
-              </select>
-              <select id="taskFilterSelect" class="input-sm" aria-label="Filter tasks" style="min-width:160px;">
-                <option value="">All Tasks</option>
-              </select>
-              <select id="acquisitionFilterSelect" class="input-sm" aria-label="Filter acquisition" style="min-width:120px;">
-                <option value="">All Acquisitions</option>
-              </select>
+              <div class="filter-dropdown">
+                <button id="statusFilterSelectBtn" class="filter-dropdown-btn" type="button" data-filter-select="statusFilterSelect">Status</button>
+                <div id="statusFilterSelectMenu" class="filter-dropdown-menu"></div>
+                <select id="statusFilterSelect" class="input-sm filter-select-hidden" aria-label="Filter status" data-filter-label="Status">
+                  <option value="">All Status</option>
+                  <option value="check">check</option>
+                  <option value="run">run</option>
+                  <option value="processed">processed</option>
+                  <option value="skip">skip</option>
+                  <option value="missing">missing</option>
+                  <option value="error">error</option>
+                </select>
+              </div>
+              <div class="filter-dropdown">
+                <button id="subjectFilterSelectBtn" class="filter-dropdown-btn" type="button" data-filter-select="subjectFilterSelect">Subject</button>
+                <div id="subjectFilterSelectMenu" class="filter-dropdown-menu"></div>
+                <select id="subjectFilterSelect" class="input-sm filter-select-hidden" aria-label="Filter subjects" data-filter-label="Subject">
+                  <option value="">All Subjects</option>
+                </select>
+              </div>
+              <div class="filter-dropdown">
+                <button id="sessionFilterSelectBtn" class="filter-dropdown-btn" type="button" data-filter-select="sessionFilterSelect">Session</button>
+                <div id="sessionFilterSelectMenu" class="filter-dropdown-menu"></div>
+                <select id="sessionFilterSelect" class="input-sm filter-select-hidden" aria-label="Filter sessions" data-filter-label="Session">
+                  <option value="">All Sessions</option>
+                </select>
+              </div>
+              <div class="filter-dropdown">
+                <button id="taskFilterSelectBtn" class="filter-dropdown-btn" type="button" data-filter-select="taskFilterSelect">Task</button>
+                <div id="taskFilterSelectMenu" class="filter-dropdown-menu"></div>
+                <select id="taskFilterSelect" class="input-sm filter-select-hidden" aria-label="Filter tasks" data-filter-label="Task">
+                  <option value="">All Tasks</option>
+                </select>
+              </div>
+              <div class="filter-dropdown">
+                <button id="acquisitionFilterSelectBtn" class="filter-dropdown-btn" type="button" data-filter-select="acquisitionFilterSelect">Acquisition</button>
+                <div id="acquisitionFilterSelectMenu" class="filter-dropdown-menu"></div>
+                <select id="acquisitionFilterSelect" class="input-sm filter-select-hidden" aria-label="Filter acquisition" data-filter-label="Acquisition">
+                  <option value="">All Acquisitions</option>
+                </select>
+              </div>
               <!-- <div id="editorRowCount" class="muted">No data loaded</div> -->
+          </div>
+
+          <div class="filter-cards-row">
+            <div id="filterCards" class="filter-cards" aria-live="polite"></div>
+            <button id="clearFiltersBtn" class="btn btn-small" type="button">Clear filters</button>
           </div>
 
           <div id="tableContainer" style="overflow:auto; border:1px solid #eee; max-height:360px"></div>
