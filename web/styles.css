@@ -48,6 +48,33 @@ tr.status-error td { border-left: 2px solid rgba(220, 53, 69, 0.9) }
 .main-view > .card { width: 100%; }
 .view-hidden { display:none }
 
+/* Progress bar styling */
+.progress-container { display:flex; align-items:center; gap:8px; opacity:0; transition:opacity 0.2s; }
+.progress-container.inline { flex:1; min-width:200px; display:flex; }
+.progress { flex:1; height:6px; background:#eee; border-radius:3px; overflow:hidden; }
+.progress .bar { height:100%; background:linear-gradient(90deg, var(--accent-2), #7ecf9b); width:0%; transition:width 0.3s ease; }
+.progress.compact { height:4px; }
+.progress.indeterminate .bar { animation: indeterminate 2s infinite; }
+@keyframes indeterminate { 0% { transform: translateX(-100%); } 50% { transform: translateX(400%); } 100% { transform: translateX(-100%); } }
+
+/* Result display layout — two column responsive */
+#main-report h4 { margin-top:12px; margin-bottom:8px; color: var(--accent); font-size:14px; font-weight:600; }
+#validationSummaryPanel { min-height:80px; margin-bottom:16px; }
+#qaResultsContainer { border:1px solid #eee; border-radius:6px; background:#fafafa; min-height:380px; padding:12px; overflow:auto; }
+
+/* Stats grid responsive sizing */
+@media (max-width: 1200px) {
+  #main-report > .card > div { flex-direction:column !important; }
+  #main-report > .card > div > div { flex:1 !important; width:100% !important; }
+}
+
+/* Validation panel styling */
+.validation-success { background:linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); border:1px solid #81c784; }
+.validation-warning { background:#fff3cd; border:1px solid #ffc107; }
+
+/* QA findings styles */
+.qa-results-empty { color:#999; text-align:center; padding:20px; }
+
 /* Editor view width — should match other views */
 #main-editor { width: 100%; }
 #tableEditor { width: 100%; box-sizing: border-box; }
@@ -71,6 +98,66 @@ tr.status-error td { border-left: 2px solid rgba(220, 53, 69, 0.9) }
 .editor-table { width:100%; border-collapse: collapse; font-size:12px }
 .editor-table th, .editor-table td { border:1px solid #eee; padding:9px 8px; background: #fafafa }
 .editor-table tbody td { background: #fff }
+
+/* File action animations */
+@keyframes slideOutAndFade {
+  0% {
+    opacity: 1;
+    max-height: 50px;
+    transform: translateX(0);
+  }
+  70% {
+    opacity: 0.3;
+    max-height: 50px;
+    transform: translateX(20px);
+  }
+  100% {
+    opacity: 0;
+    max-height: 0;
+    transform: translateX(20px);
+    visibility: hidden;
+  }
+}
+
+@keyframes rowSuccess {
+  0% { background-color: inherit; }
+  50% { background-color: #c8e6c9; }
+  100% { background-color: inherit; }
+}
+
+.file-row-success {
+  animation: rowSuccess 0.6s ease-in-out;
+}
+
+.file-row-removing {
+  animation: slideOutAndFade 0.6s ease-in-out forwards;
+}
+
+.toast-notification {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #4caf50;
+  color: white;
+  padding: 14px 20px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 10000;
+  animation: slideUp 0.4s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .editor-table tbody tr { height: 40px }
 .editor-table thead th { background: var(--accent); color: #fff; position: sticky; top: 6px; z-index: 10; font-weight: 700; font-size:13px; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06) }
 /* keep header cells visually distinct and readable */

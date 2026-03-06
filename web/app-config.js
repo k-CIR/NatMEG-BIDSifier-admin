@@ -236,18 +236,24 @@
             }
           }
         }
-        // After trying conversion table, attempt to load bids_results.json (if present)
+        // After trying conversion table, attempt to load validation/report JSON.
+        // Prefer bids_validation.json; keep bids_results.json as fallback.
         try {
           const projectRoot = data.root && data.project_name ? `${data.root.replace(/\/$/, '')}/${data.project_name}` : null;
           const resultsCandidates = [];
-          if (projectRoot) resultsCandidates.push(`${projectRoot}/logs/bids_results.json`);
+          if (projectRoot) {
+            resultsCandidates.push(`${projectRoot}/logs/bids_validation.json`);
+            resultsCandidates.push(`${projectRoot}/logs/bids_results.json`);
+          }
           if (data.bids && (data.bids.includes('/') || data.bids.startsWith('.') || data.bids.startsWith('~'))) {
+            resultsCandidates.push(`${data.bids.replace(/\/$/, '')}/logs/bids_validation.json`);
             resultsCandidates.push(`${data.bids.replace(/\/$/, '')}/logs/bids_results.json`);
+            resultsCandidates.push(`${data.bids.replace(/\/$/, '')}/bids_validation.json`);
             resultsCandidates.push(`${data.bids.replace(/\/$/, '')}/bids_results.json`);
           }
 
           for (const candidate of resultsCandidates) {
-            if (typeof window !== 'undefined' && window.APP_DEBUG) console.debug('[AppConfig] probing for bids_results.json at', candidate);
+            if (typeof window !== 'undefined' && window.APP_DEBUG) console.debug('[AppConfig] probing report candidate at', candidate);
             try {
               const resp = await fetch('/api/read-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ path: candidate }) });
               const j = await resp.json();
@@ -272,12 +278,12 @@
                     if (window.AppReport && typeof window.AppReport.updateStats === 'function') {
                       try {
                         // attempt to compute counts similar to electron app heuristics
-                        const rows = Array.isArray(obj) ? obj : (obj['Report Table'] || []);
-                        const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
-                        const sessions = new Set(rows.map(r => r.Session).filter(Boolean));
-                        const successful = rows.filter(r => { const s = ((r['Conversion Status']||'')+'').toLowerCase(); return s === 'processed' || s === 'success'; }).length;
-                        const failed = rows.filter(r => ((r['Conversion Status']||'')+'').toLowerCase() === 'error').length;
-                        const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
+                        const rows = Array.isArray(obj) ? obj : (obj['Validation Entries'] || obj['Report Table'] || []);
+                        const subjects = new Set(rows.map(r => r.Participant || r.participant).filter(Boolean));
+                        const sessions = new Set(rows.map(r => r.Session || r.session).filter(Boolean));
+                        const successful = rows.filter(r => { const s = (((r['Conversion Status'] || r.conversion_status) || '') + '').toLowerCase(); return s === 'processed' || s === 'success'; }).length;
+                        const failed = rows.filter(r => ((((r['Conversion Status'] || r.conversion_status) || '') + '').toLowerCase() === 'error')).length;
+                        const taskSet = new Set(); rows.forEach(r => { const task = r.Task || r.task; if (task) taskSet.add(task); });
                         window.AppReport.updateStats({ subjects: subjects.size, sessions: sessions.size, tasks: taskSet.size });
                         return true;
                       } catch (e) { console.warn('AppReport updateStats failed', e); return false; }
@@ -355,7 +361,7 @@
                     } catch(e){}
                   }
                   if (window.AppReport && typeof window.AppReport.updateReportArea === 'function') {
-                    try { window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(obj)); } catch(e){}
+                    try { window.AppReport.updateReportArea(window.AppReport.renderReportWithValidation ? window.AppReport.renderReportWithValidation(obj) : window.AppReport.renderJSONPreview(obj)); } catch(e){}
                   }
                   // do not auto-open report view here — keep view switching manual
                   // stop after first successful candidate
@@ -700,6 +706,8 @@
         if (configSaveState) configSaveState.textContent = 'loaded'; const saveBtn = document.getElementById('saveConfigBtn'); if (saveBtn) saveBtn.disabled = true; sendClientLog({message:'file-uploaded'});
         try { updateAnalyzeButtonState(); } catch(e) {}
         try { const analyzeBtn = document.getElementById('analyzeBtn'); if (analyzeBtn) analyzeBtn.disabled = true; } catch(e) {}
+        // Auto-load QA results if available
+        try { if (window.AppQA && typeof window.AppQA.loadFromFile === 'function') { await window.AppQA.loadFromFile(true); } } catch(e) { console.warn('[Config] Failed to auto-load QA:', e); }
       });
 
     document.getElementById('loadConfigBtn')?.addEventListener('click', async () => {
@@ -709,6 +717,8 @@
         const j = await res.json(); if (!res.ok) { alert('Read failed: ' + (j.error || JSON.stringify(j))); return; }
         // populate form directly from loaded content
         await populateFormFromYaml(j.content || ''); originalConfigText = j.content || ''; originalConfigPath = j.path || originalConfigPath; originalConfigIsLocal = false; if (configSaveState) configSaveState.textContent = 'loaded'; const saveBtn = document.getElementById('saveConfigBtn'); if (saveBtn) saveBtn.disabled = true; document.getElementById('status').textContent = `Loaded ${j.path}`; try { updateAnalyzeButtonState(); } catch(e){}
+        // Auto-load QA results if available
+        try { if (window.AppQA && typeof window.AppQA.loadFromFile === 'function') { await window.AppQA.loadFromFile(true); } } catch(e) { console.warn('[Config] Failed to auto-load QA:', e); }
       } catch (err) { alert('Error reading file: ' + err.message); }
     });
 
@@ -732,7 +742,10 @@
         const res = await fetch('/api/read-file', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: pathToTry}) });
         const j = await res.json();
         if (!res.ok) return { ok: false, info: j };
-        await populateFormFromYaml(j.content || ''); originalConfigText = j.content || ''; if (configSaveState) configSaveState.textContent = 'loaded'; const saveBtn = document.getElementById('saveConfigBtn'); if (saveBtn) saveBtn.disabled = true; document.getElementById('status').textContent = `Loaded ${j.path}`; return { ok: true };
+        await populateFormFromYaml(j.content || ''); originalConfigText = j.content || ''; if (configSaveState) configSaveState.textContent = 'loaded'; const saveBtn = document.getElementById('saveConfigBtn'); if (saveBtn) saveBtn.disabled = true; document.getElementById('status').textContent = `Loaded ${j.path}`;
+        // Auto-load QA results if available
+        try { if (window.AppQA && typeof window.AppQA.loadFromFile === 'function') { await window.AppQA.loadFromFile(true); } } catch(e) { console.warn('[Config] Failed to auto-load QA:', e); }
+        return { ok: true };
       } catch (err) { return { ok: false, info: { error: err.message } }; }
     }
 

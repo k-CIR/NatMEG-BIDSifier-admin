@@ -6,6 +6,7 @@ import sys
 import time
 from datetime import datetime
 from glob import glob
+from typing import Dict, Any
 from os.path import basename, dirname, exists, getsize, join
 
 import mne
@@ -21,6 +22,14 @@ from bidsify_parsing import bids_path_from_rawname, get_split_file_parts
 from bidsify_sidecars import add_channel_parameters, copy_eeg_to_meg
 from bidsify_templates import create_dataset_description, create_proc_description
 from bidsify_utils import setLogPath
+
+# Import QA modules
+try:
+    from bidsify_qa_agent import BIDSQAAgent
+    from bidsify_bids_schema import BIDSSchemaValidator
+    QA_AVAILABLE = True
+except ImportError:
+    QA_AVAILABLE = False
 
 mne.set_log_level('WARNING')
 
@@ -402,6 +411,47 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
         except (json.JSONDecodeError, FileNotFoundError):
             existing_report = []
 
+    def check_bids_file_issues(destination_file):
+        """
+        Check why a file might not be BIDS compliant.
+        Returns reason string or None if valid.
+        Reference: https://bids-standard.github.io/
+        """
+        if not exists(destination_file):
+            return "File does not exist"
+        
+        issues = []
+        
+        # Check for missing sidecar JSON for MEG/EEG files
+        if destination_file.endswith('_meg.fif') or destination_file.endswith('_eeg.fif'):
+            sidecar_json = destination_file.replace('.fif', '.json')
+            if not exists(sidecar_json):
+                issues.append("Missing required JSON sidecar")
+        
+        # Check for missing calibration files for MEG
+        if destination_file.endswith('_meg.fif'):
+            base = destination_file.rsplit('_meg.fif', 1)[0]
+            # MEG files should have associated _cal.dat and _ct.dat files (for Neuromag)
+            has_quality_files = any(
+                exists(base + suffix) 
+                for suffix in ['_cal.dat', '_ct.dat', '_crosstalk.txt']
+            )
+            if not has_quality_files:
+                issues.append("Missing MEG calibration/quality files (_cal.dat, _ct.dat)")
+        
+        # BIDSValidator check
+        bids_file_rel = os.path.relpath(destination_file, bids_root)
+        try:
+            validator = BIDSValidator()
+            if not validator.is_bids(bids_file_rel):
+                if not issues:
+                    issues.append("Does not meet BIDS specification requirements")
+        except Exception as e:
+            if not issues:
+                issues.append(f"Validation error: {str(e)[:80]}")
+        
+        return "; ".join(issues) if issues else None
+
     def create_entry(source_file, destination_file, row):
         entry = {}
         bids_file = os.path.join(row['bids_path'].replace(config.get('BIDS', ''), ''), os.path.basename(destination_file))
@@ -425,7 +475,13 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
             entry['BIDS Size'] = 0
             entry['BIDS modification Date'] = 'Not yet created'
 
-        entry['Validated'] = 'True BIDS' if exists(destination_file) and BIDSValidator().is_bids(bids_file) else 'False BIDS'
+        is_valid = exists(destination_file) and BIDSValidator().is_bids(bids_file)
+        entry['Validated'] = 'True BIDS' if is_valid else 'False BIDS'
+        
+        # Capture validation issue reason only for invalid files
+        if not is_valid:
+            entry['Validation Issue'] = check_bids_file_issues(destination_file)
+        
         entry['Participant'] = row['participant_to'] if pd.notna(row['participant_to']) else 'N/A'
         entry['Session'] = row['session_to'] if pd.notna(row['session_to']) else 'N/A'
         entry['Task'] = row['task'] if pd.notna(row['task']) else 'N/A'
@@ -435,6 +491,11 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
         entry['Splits'] = row['split'] if pd.notna(row['split']) and row['split'] else 'N/A'
         entry['Conversion Status'] = row['status'] if pd.notna(row['status']) else 'error'
         entry['timestamp'] = datetime.now().isoformat()
+        
+        # Action tracking for user annotations
+        entry['BIDS action'] = ''  # Empty until user marks as OK, Ignored, etc.
+        entry['action_timestamp'] = None
+        entry['action_user_note'] = ''
 
         return entry
 
@@ -496,11 +557,43 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
     except Exception:
         conversion_status = 'Incomplete'
 
-    final_report['BIDS Summary'] = {
+    # Calculate BIDS compliance statistics
+    all_entries = existing_report + new_entries
+    total_files = len(all_entries)
+    valid_bids = sum(1 for e in all_entries if e.get('Validated') == 'True BIDS')
+    invalid_bids = sum(1 for e in all_entries if e.get('Validated') == 'False BIDS')
+    
+    # Aggregate validation issues
+    validation_issues = {}
+    for entry in all_entries:
+        if entry.get('Validated') == 'False BIDS' and entry.get('Validation Issue'):
+            issue = entry.get('Validation Issue')
+            # Extract main issue type
+            issue_type = issue.split(';')[0].strip()
+            validation_issues[issue_type] = validation_issues.get(issue_type, 0) + 1
+    
+    compliance_summary = {
         'Conversion Status': conversion_status,
+        'Total Files': total_files,
+        'Valid BIDS Files': valid_bids,
+        'Invalid BIDS Files': invalid_bids,
+        'Compliance Rate (%)': round((valid_bids / total_files * 100) if total_files > 0 else 0, 1),
         'Participants file': participants_file[0] if participants_file else 'Not found',
         'Data description': data_description_file[0] if data_description_file else 'Not found'
     }
+    
+    if validation_issues:
+        compliance_summary['Validation Issues'] = {
+            'description': 'Common reasons for BIDS non-compliance. Reference: https://bids-standard.github.io/',
+            'issues': validation_issues,
+            'remediation': {
+                'Missing required JSON sidecar': 'Ensure all MEG/EEG data files have corresponding .json metadata sidecars',
+                'Missing MEG calibration/quality files': 'Check that calibration (_cal.dat), crosstalk (_ct.dat) files are present for Neuromag systems',
+                'Does not meet BIDS specification': 'Check file naming conventions, required metadata fields, and dataset structure'
+            }
+        }
+    
+    final_report['BIDS Summary'] = compliance_summary
 
     final_report['Report Table'] = existing_report + new_entries
 
@@ -520,6 +613,239 @@ def update_bids_report(conversion_table: pd.DataFrame, config: dict):
     return len(new_entries) + len(updated_entries)
 
 
+def run_qa_analysis(config: dict, conversion_table: pd.DataFrame = None) -> Dict[str, Any]:
+    """
+    Run QA analysis on completed BIDS dataset.
+    Focuses on post-conversion validation and dataset-level consistency checks.
+    
+    Args:
+        config: Configuration dictionary
+        conversion_table: Optional conversion table for dataset-level checks
+        
+    Returns:
+        QA results dictionary with findings, summary, and recommendations
+    """
+    if not QA_AVAILABLE:
+        return {'error': 'QA modules not available'}
+    
+    path_BIDS = config.get('BIDS', '')
+    if not exists(path_BIDS):
+        return {'error': f'BIDS path not found: {path_BIDS}'}
+    
+    print("[INFO] Running post-conversion QA analysis...")
+    
+    try:
+        agent = BIDSQAAgent(path_BIDS, config, enable_llm=False)  # Set to True if ollama is available
+        results = agent.analyze_dataset(conversion_table)
+        
+        print(f"[INFO] QA analysis complete: {results['summary']['total_issues']} issues found")
+        
+        # Show brief summary
+        if results['summary']['total_issues'] > 0:
+            print(f"  - Errors: {results['summary']['severity_counts'].get('error', 0)}")
+            print(f"  - Warnings: {results['summary']['severity_counts'].get('warning', 0)}")
+            print(f"  - Info: {results['summary']['severity_counts'].get('info', 0)}")
+        else:
+            print("  ✓ No issues detected")
+        
+        return results
+    except Exception as e:
+        print(f"[ERROR] QA analysis failed: {e}")
+        return {'error': str(e)}
+
+
+def add_qa_to_report(config: dict, results_file: str, qa_results: Dict[str, Any]) -> None:
+    """
+    Add QA findings to existing results report JSON.
+    
+    Args:
+        config: Configuration dictionary
+        results_file: Path to bids_results.json
+        qa_results: QA analysis results
+    """
+    if not exists(results_file) or not qa_results or 'error' in qa_results:
+        return
+    
+    try:
+        with open(results_file, 'r') as f:
+            report = json.load(f)
+    except json.JSONDecodeError:
+        report = {}
+    
+    # Add QA section to report
+    report['QA Analysis'] = {
+        'timestamp': qa_results.get('timestamp', datetime.now().isoformat()),
+        'summary': qa_results.get('summary', {}),
+        'findings': qa_results.get('findings', []),
+    }
+    
+    try:
+        with open(results_file, 'w') as f:
+            json.dump(report, f, indent=4, allow_nan=False)
+        print(f"[INFO] QA results added to report: {results_file}")
+    except Exception as e:
+        print(f"[ERROR] Failed to write QA results to report: {e}")
+
+
+def run_unified_validation(config: dict, conversion_table: pd.DataFrame = None) -> Dict[str, Any]:
+    """
+    Run unified BIDS validation combining file validation and dataset-level QA.
+    Generates bids_validation.json with merged findings and action tracking.
+    
+    Args:
+        config: Configuration dictionary
+        conversion_table: Optional conversion table for dataset-level checks
+        
+    Returns:
+        Unified validation results with merged findings and summary
+    """
+    bids_root = config.get('BIDS', '')
+    logPath = setLogPath(config)
+    validation_file = os.path.join(logPath, 'bids_validation.json')
+    
+    print("[INFO] Running unified BIDS validation analysis...")
+    
+    # Step 1: Run file validation (update report to get validation entries)
+    print("  [1/3] Performing file validation...")
+    if conversion_table is not None and not conversion_table.empty:
+        update_bids_report(conversion_table, config)
+    
+    # Load file validation results
+    report_file = os.path.join(logPath, 'bids_results.json')
+    file_validation_entries = []
+    file_validation_summary = {}
+    
+    if exists(report_file):
+        try:
+            with open(report_file, 'r') as f:
+                report = json.load(f)
+                file_validation_entries = report.get('Report Table', [])
+                file_validation_summary = report.get('BIDS Summary', {})
+                print(f"    ✓ File validation: {len(file_validation_entries)} files analyzed")
+        except Exception as e:
+            print(f"    ✗ Error reading file validation results: {e}")
+    
+    # Step 2: Run QA analysis
+    print("  [2/3] Performing dataset QA analysis...")
+    qa_results = run_qa_analysis(config, conversion_table)
+    qa_findings = qa_results.get('findings', []) if 'findings' in qa_results else []
+    qa_summary = qa_results.get('summary', {}) if 'summary' in qa_results else {}
+    print(f"    ✓ QA analysis: {len(qa_findings)} dataset issues found")
+    
+    # Step 3: Merge findings and create unified report
+    print("  [3/3] Merging findings and creating unified report...")
+    
+    # Convert file validation entries to unified format
+    unified_entries = []
+    for idx, file_entry in enumerate(file_validation_entries):
+        entry = {
+            'id': f"file-{idx}",
+            'type': 'file_validation',
+            'file': file_entry.get('BIDS File', ''),
+            'source_file': file_entry.get('Source File', ''),
+            'severity': 'error' if file_entry.get('Validated') == 'False BIDS' else 'info',
+            'category': 'BIDS Compliance',
+            'bids_level': 'file',
+            'issue': file_entry.get('Validation Issue', 'N/A'),
+            'validated': file_entry.get('Validated', 'N/A'),
+            'conversion_status': file_entry.get('Conversion Status', ''),
+            'participant': file_entry.get('Participant', ''),
+            'session': file_entry.get('Session', ''),
+            'task': file_entry.get('Task', ''),
+            'datatype': file_entry.get('Datatype', ''),
+            'acquisition': file_entry.get('Acquisition', ''),
+            'bids_action': file_entry.get('BIDS action', ''),
+            'action_timestamp': file_entry.get('action_timestamp'),
+            'action_user_note': file_entry.get('action_user_note', ''),
+            'last_checked': file_entry.get('timestamp', datetime.now().isoformat())
+        }
+        unified_entries.append(entry)
+    
+    # Add QA findings
+    for idx, qa_entry in enumerate(qa_findings):
+        qa_id_suffix = idx + len(file_validation_entries)
+        entry = {
+            'id': f"qa-{qa_id_suffix}",
+            'type': 'dataset_issue',
+            'file': qa_entry.get('file', ''),
+            'severity': qa_entry.get('severity', 'info'),
+            'category': qa_entry.get('category', 'Dataset Consistency'),
+            'bids_level': qa_entry.get('bids_level', 'dataset'),
+            'issue': qa_entry.get('issue', ''),
+            'suggestion': qa_entry.get('suggestion', ''),
+            'participant': qa_entry.get('participant', ''),
+            'session': qa_entry.get('session', ''),
+            'task': qa_entry.get('task', ''),
+            'datatype': qa_entry.get('datatype', ''),
+            'affected_fields': qa_entry.get('affected_fields', []),
+            'bids_action': '',  # Empty until user takes action
+            'action_timestamp': None,
+            'action_user_note': '',
+            'last_checked': qa_entry.get('timestamp', datetime.now().isoformat())
+        }
+        unified_entries.append(entry)
+    
+    # Create unified summary
+    unified_summary = {
+        'validation_timestamp': datetime.now().isoformat(),
+        'dataset': bids_root,
+        'conversion_status': file_validation_summary.get('Conversion Status', 'Unknown'),
+        'file_validation': {
+            'total_files': file_validation_summary.get('Total Files', 0),
+            'valid_bids': file_validation_summary.get('Valid BIDS Files', 0),
+            'invalid_bids': file_validation_summary.get('Invalid BIDS Files', 0),
+            'compliance_rate': file_validation_summary.get('Compliance Rate (%)', 0),
+            'issues_by_type': file_validation_summary.get('Validation Issues', {}).get('issues', {})
+        },
+        'qa_analysis': {
+            'total_issues': qa_summary.get('total_issues', 0),
+            'by_severity': qa_summary.get('severity_counts', {}),
+            'by_category': qa_summary.get('category_counts', {})
+        },
+        'actions_tracking': {
+            'total_entries': len(unified_entries),
+            'entries_with_actions': sum(1 for e in unified_entries if e.get('bids_action'))
+        },
+        'participants_file': file_validation_summary.get('Participants file', 'Unknown'),
+        'dataset_description': file_validation_summary.get('Data description', 'Unknown')
+    }
+    
+    # Calculate overall status
+    invalid_files = unified_summary['file_validation']['invalid_bids']
+    error_issues = unified_summary['qa_analysis']['by_severity'].get('error', 0)
+    warning_issues = unified_summary['qa_analysis']['by_severity'].get('warning', 0)
+    
+    if invalid_files > 0 or error_issues > 0:
+        overall_status = f"Review Required - {invalid_files} file issues, {error_issues} errors"
+    elif warning_issues > 0:
+        overall_status = f"Warnings Present - {warning_issues} warnings"
+    else:
+        overall_status = "Validation Passed ✓"
+    
+    unified_summary['overall_status'] = overall_status
+    
+    # Write unified validation file
+    validation_report = {
+        'BIDS Validation Summary': unified_summary,
+        'Validation Entries': unified_entries
+    }
+    
+    try:
+        with open(validation_file, 'w') as f:
+            json.dump(validation_report, f, indent=4, allow_nan=False)
+        print(f"[INFO] Unified validation report written to: {validation_file}")
+    except Exception as e:
+        print(f"[ERROR] Failed to write validation report: {e}")
+        return {'error': str(e)}
+    
+    print(f"\n[SUMMARY] Validation complete:")
+    print(f"  • Files: {file_validation_summary.get('Total Files', 0)} ({file_validation_summary.get('Compliance Rate (%)', 0)}% compliant)")
+    print(f"  • Dataset issues: {qa_summary.get('total_issues', 0)} ({len([e for e in qa_findings if e.get('severity') == 'error'])} errors, {len([e for e in qa_findings if e.get('severity') == 'warning'])} warnings)")
+    print(f"  • Status: {overall_status}\n")
+    
+    return validation_report
+
+
 def args_parser():
     """
     Parse command-line arguments for bidsify script.
@@ -531,7 +857,8 @@ def args_parser():
             "Main Operations:\n"
             "    --analyse  Only make or update the conversion table (no conversion)\n"
             "    --run      Execute the BIDS conversion pipeline (convert files)\n"
-            "    --report   Generate BIDS report (JSON summary)\n\n"
+            "    --report   Generate BIDS report with QA analysis (JSON summary)\n"
+            "    --qa       Run post-conversion QA analysis on completed dataset\n\n"
             "Report Management:\n"
             "    --consolidate-report  Deduplicate entries in existing report\n"
             "    --prune-report        Remove entries for missing source files\n\n"
@@ -541,6 +868,7 @@ def args_parser():
             "Viewer Pages:\n"
             "    Conversion Table:  [logs/bids_conversion.tsv]\n"
             "    BIDS Report:       [logs/bids_results.json]\n"
+            "    QA Analysis:       [logs/qa_analysis.json]\n"
             "    Summary:           [logs/bids_results.json]\n"
             "    Editor:            [logs/bids_conversion.tsv] (editable)\n"
             "    Log:               [logs/bidsify.log]\n\n"
@@ -551,7 +879,9 @@ def args_parser():
     parser.add_argument('--config', type=str, required=True, help='Path to config file (YAML or JSON)')
     parser.add_argument('--analyse', action='store_true', help='Make or update conversion table only')
     parser.add_argument('--run', action='store_true', help='Execute BIDS conversion pipeline')
-    parser.add_argument('--report', action='store_true', help='Generate BIDS report (JSON summary)')
+    parser.add_argument('--report', action='store_true', help='Generate BIDS report with QA analysis (JSON summary)')
+    parser.add_argument('--qa', action='store_true', help='Run post-conversion QA analysis on completed BIDS dataset')
+    parser.add_argument('--validate', action='store_true', help='Run unified validation (file compliance + QA analysis) → bids_validation.json')
     parser.add_argument('--consolidate-report', action='store_true', help='Deduplicate entries in BIDS report')
     parser.add_argument('--prune-report', action='store_true', help='Remove entries for missing source files from report')
     parser.add_argument('--reindex', action='store_true', help='Force full rescan of raw files (ignore cache)')
@@ -628,7 +958,71 @@ def main(config: str = None):
 
     if args.report:
         print("Generating BIDS conversion report")
-        update_bids_report(load_conversion_table(config, refresh_status=False)[0], config)
+        conversion_table, _ = load_conversion_table(config, refresh_status=False)
+        update_bids_report(conversion_table, config)
+        
+        # Add QA analysis to report
+        qa_results = run_qa_analysis(config, conversion_table)
+        if QA_AVAILABLE and 'error' not in qa_results:
+            logPath = setLogPath(config)
+            results_file = os.path.join(logPath, 'bids_results.json')
+            add_qa_to_report(config, results_file, qa_results)
+
+    if args.qa:
+        print("Running post-conversion QA analysis")
+        conversion_table, _ = load_conversion_table(config, refresh_status=False)
+        qa_results = run_qa_analysis(config, conversion_table)
+        
+        # Save QA results to file
+        if QA_AVAILABLE and 'error' not in qa_results:
+            logPath = setLogPath(config)
+            qa_file = os.path.join(logPath, 'qa_analysis.json')
+            
+            # Ensure log directory exists
+            os.makedirs(logPath, exist_ok=True)
+            
+            try:
+                with open(qa_file, 'w') as f:
+                    json.dump(qa_results, f, indent=4, allow_nan=False)
+                print(f"[INFO] QA analysis saved to: {qa_file}")
+                
+                # Verify file was created
+                if os.path.exists(qa_file):
+                    file_size = os.path.getsize(qa_file)
+                    print(f"[INFO] QA file created successfully ({file_size} bytes)")
+                else:
+                    print(f"[ERROR] QA file was not created at: {qa_file}")
+                
+                # Print summary of findings by category
+                if qa_results.get('summary', {}).get('categories'):
+                    print("\n[INFO] Issues by category:")
+                    for cat, count in sorted(qa_results['summary']['categories'].items()):
+                        print(f"  - {cat}: {count}")
+                else:
+                    print("\n[INFO] No issues found by category analysis")
+            except Exception as e:
+                print(f"[ERROR] Failed to write QA analysis file: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            if not QA_AVAILABLE:
+                print("[WARN] QA analysis modules not available")
+            elif 'error' in qa_results:
+                print(f"[WARN] QA analysis returned error: {qa_results.get('error')}")
+            else:
+                print("[WARN] QA analysis failed or not available")
+
+    if args.validate:
+        print("Running unified BIDS validation analysis")
+        conversion_table, _ = load_conversion_table(config, refresh_status=False)
+        validation_results = run_unified_validation(config, conversion_table)
+        
+        if 'error' not in validation_results:
+            logPath = setLogPath(config)
+            validation_file = os.path.join(logPath, 'bids_validation.json')
+            print(f"[INFO] Validation results saved to: {validation_file}")
+        else:
+            print(f"[WARN] Validation failed: {validation_results.get('error')}")
 
     return True
 

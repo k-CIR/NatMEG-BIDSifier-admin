@@ -12,7 +12,7 @@ Endpoints:
 This file expects the repository root layout: bidsify.py at the project root.
 Run with: uvicorn server.app:app --host 0.0.0.0 --port 8080
 """
-from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,7 +23,9 @@ from uuid import uuid4
 from typing import Dict, Any, Tuple
 import os
 import yaml
+import json
 from typing import Optional
+from datetime import datetime
 import shutil
 import sys
 
@@ -294,6 +296,538 @@ async def api_report(config: RawConfig):
         return JSONResponse(out)
     finally:
         _cleanup_paths([cfg_tmp])
+
+
+@app.post('/api/qa')
+async def api_qa(config: RawConfig):
+    """Run QA analysis on dataset and return findings."""
+    cfg_src = None
+    cfg_tmp = None
+    try:
+        cfg_src, cfg_tmp, err = _resolve_config_source(config.config_path, config.config_yaml)
+        if err:
+            return err
+
+        # Load config
+        cfg_dict = _load_config_dict(cfg_src)
+        if not cfg_dict:
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({'error': 'invalid config'}, status_code=400)
+
+        # Run QA analysis
+        out = _run_bidsify(['--qa'], cfg_src)
+        
+        # Check if command succeeded
+        if not out.get('success', False) or out.get('returncode', -1) != 0:
+            print(f"[QA API] QA command failed with returncode {out.get('returncode')}", file=sys.stderr)
+            print(f"[QA API] stderr: {out.get('stderr', '')[:500]}", file=sys.stderr)
+            return JSONResponse({
+                'error': 'QA analysis failed',
+                'returncode': out.get('returncode', -1),
+                'stderr': out.get('stderr', ''),
+                'stdout': out.get('stdout', '')
+            }, status_code=500)
+        
+        # Try to read the generated QA results file
+        try:
+            # Build list of candidate paths for qa_analysis.json
+            qa_file_candidates = []
+            
+            # Extract paths from config
+            project = cfg_dict.get('Project') or {}
+            root = project.get('Root') or cfg_dict.get('Root') or ''
+            name = project.get('Name') or cfg_dict.get('Name') or ''
+            bids_path = project.get('BIDS') or cfg_dict.get('BIDS') or ''
+            
+            # Calculate expected log directory
+            if root and name:
+                # Typical path: Root/Name/logs
+                qa_file_candidates.append(os.path.join(root, name, 'logs', 'qa_analysis.json'))
+            if root:
+                # Also try: Root/logs
+                qa_file_candidates.append(os.path.join(root, 'logs', 'qa_analysis.json'))
+            if bids_path:
+                # Try: dirname(BIDS)/logs
+                bids_logs = os.path.join(os.path.dirname(bids_path), 'logs')
+                qa_file_candidates.append(os.path.join(bids_logs, 'qa_analysis.json'))
+            
+            # Debug: print candidates being checked
+            print(f"[QA API] Looking for qa_analysis.json in candidates:", file=sys.stderr)
+            for candidate in qa_file_candidates:
+                exists = os.path.exists(candidate)
+                print(f"  - {candidate} (exists: {exists})", file=sys.stderr)
+            
+            # Try to find and read QA results
+            qa_results = None
+            for qa_file in qa_file_candidates:
+                if os.path.exists(qa_file):
+                    print(f"[QA API] Found QA file at: {qa_file}", file=sys.stderr)
+                    with open(qa_file, 'r') as f:
+                        qa_results = json.load(f)
+                    break
+            
+            if qa_results:
+                # Return structured QA results
+                print(f"[QA API] Returning parsed QA results with {len(qa_results.get('findings', []))} findings", file=sys.stderr)
+                return JSONResponse(qa_results)
+            else:
+                # Fallback: return stdout/stderr if QA file not found
+                print(f"[QA API] QA file not found, returning command output", file=sys.stderr)
+                return JSONResponse(out)
+        except Exception as read_err:
+            # If we can't read QA file, return the command output
+            print(f"[QA API] Exception reading QA file: {read_err}", file=sys.stderr)
+            return JSONResponse(out)
+            
+    except Exception as e:
+        return JSONResponse({'error': str(e)}, status_code=500)
+    finally:
+        _cleanup_paths([cfg_tmp])
+
+
+@app.post('/api/validate')
+async def api_validate(config: RawConfig):
+    """Run unified BIDS validation (file compliance + QA analysis) and return merged findings."""
+    cfg_src = None
+    cfg_tmp = None
+    try:
+        cfg_src, cfg_tmp, err = _resolve_config_source(config.config_path, config.config_yaml)
+        if err:
+            return err
+
+        # Load config
+        cfg_dict = _load_config_dict(cfg_src)
+        if not cfg_dict:
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({'error': 'invalid config'}, status_code=400)
+
+        # Run unified validation analysis
+        out = _run_bidsify(['--validate'], cfg_src)
+        
+        # Check if command succeeded
+        if not out.get('success', False) or out.get('returncode', -1) != 0:
+            print(f"[Validation API] Validation command failed with returncode {out.get('returncode')}", file=sys.stderr)
+            print(f"[Validation API] stderr: {out.get('stderr', '')[:500]}", file=sys.stderr)
+            return JSONResponse({
+                'error': 'Validation analysis failed',
+                'returncode': out.get('returncode', -1),
+                'stderr': out.get('stderr', ''),
+                'stdout': out.get('stdout', '')
+            }, status_code=500)
+        
+        # Try to read the generated validation results file
+        try:
+            # Build list of candidate paths for bids_validation.json
+            validation_file_candidates = []
+            
+            # Extract paths from config
+            project = cfg_dict.get('Project') or {}
+            root = project.get('Root') or cfg_dict.get('Root') or ''
+            name = project.get('Name') or cfg_dict.get('Name') or ''
+            bids_path = project.get('BIDS') or cfg_dict.get('BIDS') or ''
+            
+            # Calculate expected log directory
+            if root and name:
+                # Typical path: Root/Name/logs
+                validation_file_candidates.append(os.path.join(root, name, 'logs', 'bids_validation.json'))
+            if root:
+                # Also try: Root/logs
+                validation_file_candidates.append(os.path.join(root, 'logs', 'bids_validation.json'))
+            if bids_path:
+                # Try: dirname(BIDS)/logs
+                bids_parent = os.path.dirname(bids_path)
+                validation_file_candidates.append(os.path.join(bids_parent, 'logs', 'bids_validation.json'))
+            
+            # Debug: log all candidates we're searching
+            print(f"[Validation API] Searching for validation file in candidates:", file=sys.stderr)
+            for candidate in validation_file_candidates:
+                if os.path.exists(candidate):
+                    file_size = os.path.getsize(candidate)
+                    exists_str = f"✓ EXISTS ({file_size} bytes)"
+                else:
+                    exists_str = "✗ not found"
+                print(f"  {exists_str}: {candidate}", file=sys.stderr)
+            
+            # Try to find and read validation results
+            validation_results = None
+            for validation_file in validation_file_candidates:
+                if os.path.exists(validation_file):
+                    print(f"[Validation API] Found validation file at: {validation_file}", file=sys.stderr)
+                    try:
+                        with open(validation_file, 'r') as f:
+                            validation_results = json.load(f)
+                        print(f"[Validation API] Successfully parsed bids_validation.json", file=sys.stderr)
+                        break
+                    except json.JSONDecodeError as e:
+                        print(f"[Validation API] ERROR: Failed to parse JSON from {validation_file}: {e}", file=sys.stderr)
+                        validation_results = None
+                    except Exception as e:
+                        print(f"[Validation API] ERROR: Failed to read {validation_file}: {e}", file=sys.stderr)
+                        validation_results = None
+            
+            # If not found, try bids_results.json as fallback (file-level validation)
+            if not validation_results:
+                print(f"[Validation API] bids_validation.json not found, trying bids_results.json fallback", file=sys.stderr)
+                results_file_candidates = []
+                if root and name:
+                    results_file_candidates.append(os.path.join(root, name, 'logs', 'bids_results.json'))
+                if root:
+                    results_file_candidates.append(os.path.join(root, 'logs', 'bids_results.json'))
+                if bids_path:
+                    bids_parent = os.path.dirname(bids_path)
+                    results_file_candidates.append(os.path.join(bids_parent, 'logs', 'bids_results.json'))
+                
+                for results_file in results_file_candidates:
+                    if os.path.exists(results_file):
+                        print(f"[Validation API] Found bids_results.json at: {results_file}", file=sys.stderr)
+                        with open(results_file, 'r') as f:
+                            validation_results = json.load(f)
+                        break
+            
+            if validation_results:
+                # Load saved BIDS actions from validation entries to calculate resolved compliance
+                try:
+                    # Count entries with 'Marked as OK' action
+                    marked_ok_count = 0
+                    validation_entries = validation_results.get('Validation Entries', [])
+                    
+                    for entry in validation_entries:
+                        if entry.get('bids_action') == 'Marked as OK':
+                            marked_ok_count += 1
+                    
+                    # Add resolved compliance to summary if we found marked entries
+                    if marked_ok_count > 0 and 'BIDS Validation Summary' in validation_results:
+                        summary = validation_results['BIDS Validation Summary']
+                        file_validation = summary.get('file_validation', {}) if isinstance(summary, dict) else {}
+                        original_invalid = summary.get('Invalid BIDS Files', file_validation.get('invalid_bids', 0))
+                        original_total = summary.get('Total Files', file_validation.get('total_files', 0))
+                        
+                        # Resolved invalid count = original invalid - files marked OK
+                        resolved_invalid = max(0, original_invalid - marked_ok_count)
+                        resolved_compliance = ((original_total - resolved_invalid) / original_total * 100) if original_total > 0 else 0
+                        
+                        # Add resolved stats to summary
+                        validation_results['BIDS Validation Summary']['Resolved Invalid BIDS Files'] = resolved_invalid
+                        validation_results['BIDS Validation Summary']['Resolved Compliance Rate (%)'] = round(resolved_compliance, 1)
+                        validation_results['BIDS Validation Summary']['User Actions Applied'] = marked_ok_count
+                
+                except Exception as e:
+                    # If action resolution fails, just continue with original results
+                    print(f"[Validation API] Warning: could not calculate resolved compliance: {e}", file=sys.stderr)
+                
+                # Return structured validation results
+                print(f"[Validation API] Returning parsed validation results", file=sys.stderr)
+                return JSONResponse(validation_results)
+            else:
+                # Fallback: return stdout/stderr if validation file not found
+                print(f"[Validation API] Validation file not found, returning command output", file=sys.stderr)
+                return JSONResponse(out)
+        except Exception as read_err:
+            # If we can't read validation file, return the command output
+            print(f"[Validation API] Exception reading validation file: {read_err}", file=sys.stderr)
+            return JSONResponse(out)
+            
+    except Exception as e:
+        return JSONResponse({'error': str(e)}, status_code=500)
+    finally:
+        _cleanup_paths([cfg_tmp])
+
+
+@app.post('/api/qa/acknowledge')
+async def api_qa_acknowledge(request: Request):
+    """Save acknowledged issues to qa_analysis.json file."""
+    try:
+        body = await request.json()
+        config_data = body.get('config', {})
+        acknowledged_issues = body.get('acknowledged_issues', {})
+        
+        cfg_src = None
+        cfg_tmp = None
+        
+        # Resolve config
+        cfg_src, cfg_tmp, err = _resolve_config_source(
+            config_data.get('config_path'),
+            config_data.get('config_yaml')
+        )
+        if err:
+            return err
+            
+        # Load config
+        cfg_dict = _load_config_dict(cfg_src)
+        if not cfg_dict:
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({'error': 'invalid config'}, status_code=400)
+        
+        # Build candidate paths for qa_analysis.json
+        qa_file_candidates = []
+        project = cfg_dict.get('Project') or {}
+        root = project.get('Root') or cfg_dict.get('Root') or ''
+        name = project.get('Name') or cfg_dict.get('Name') or ''
+        bids_path = project.get('BIDS') or cfg_dict.get('BIDS') or ''
+        
+        if root and name:
+            qa_file_candidates.append(os.path.join(root, name, 'logs', 'qa_analysis.json'))
+        if root:
+            qa_file_candidates.append(os.path.join(root, 'logs', 'qa_analysis.json'))
+        if bids_path:
+            bids_logs = os.path.join(os.path.dirname(bids_path), 'logs')
+            qa_file_candidates.append(os.path.join(bids_logs, 'qa_analysis.json'))
+        
+        # Find existing QA file
+        qa_file = None
+        for candidate in qa_file_candidates:
+            if os.path.exists(candidate):
+                qa_file = candidate
+                break
+        
+        if not qa_file:
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({'error': 'QA analysis file not found'}, status_code=404)
+        
+        # Read existing QA results
+        with open(qa_file, 'r') as f:
+            qa_results = json.load(f)
+        
+        # Update acknowledged issues
+        qa_results['acknowledged_issues'] = acknowledged_issues
+        qa_results['last_acknowledged'] = datetime.now().isoformat()
+        
+        # Write back to file
+        with open(qa_file, 'w') as f:
+            json.dump(qa_results, f, indent=2)
+        
+        _cleanup_paths([cfg_src, cfg_tmp])
+        return JSONResponse({'success': True, 'acknowledged_count': len(acknowledged_issues)})
+        
+    except Exception as e:
+        print(f"[QA Acknowledge API] Error: {e}", file=sys.stderr)
+        return JSONResponse({'error': str(e)}, status_code=500)
+
+
+@app.post('/api/bids/actions/save')
+async def api_bids_actions_save(request: Request):
+    """Save BIDS file actions (e.g., 'Marked as OK', 'Ignored') directly to bids_validation.json.
+    
+    Request body:
+    {
+        "config": {"config_path": "...", "config_yaml": "..."},
+        "actions": {
+            "/path/to/file.fif": {
+                "action": "Marked as OK",
+                "timestamp": "2026-03-06T10:34:32.948065",
+                "note": "optional user note"
+            },
+            ...
+        }
+    }
+    """
+    try:
+        body = await request.json()
+        config_data = body.get('config', {})
+        actions = body.get('actions', {})
+        
+        cfg_src = None
+        cfg_tmp = None
+        
+        # Resolve config
+        cfg_src, cfg_tmp, err = _resolve_config_source(
+            config_data.get('config_path'),
+            config_data.get('config_yaml')
+        )
+        if err:
+            return err
+            
+        # Load config
+        cfg_dict = _load_config_dict(cfg_src)
+        if not cfg_dict:
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({'error': 'invalid config'}, status_code=400)
+        
+        # Build candidate paths for bids_validation.json (prefer validation.json)
+        validation_file_candidates = []
+        project = cfg_dict.get('Project') or {}
+        root = project.get('Root') or cfg_dict.get('Root') or ''
+        name = project.get('Name') or cfg_dict.get('Name') or ''
+        bids_path = project.get('BIDS') or cfg_dict.get('BIDS') or ''
+        
+        if root and name:
+            validation_file_candidates.append(os.path.join(root, name, 'logs', 'bids_validation.json'))
+        if root:
+            validation_file_candidates.append(os.path.join(root, 'logs', 'bids_validation.json'))
+        if bids_path:
+            bids_logs = os.path.join(os.path.dirname(bids_path), 'logs')
+            validation_file_candidates.append(os.path.join(bids_logs, 'bids_validation.json'))
+        
+        # Find existing validation file
+        validation_file = None
+        validation_data = {}
+        
+        for candidate in validation_file_candidates:
+            if os.path.exists(candidate):
+                validation_file = candidate
+                try:
+                    with open(candidate, 'r') as f:
+                        validation_data = json.load(f)
+                except Exception as e:
+                    print(f"[BIDS Actions Save] Error reading {candidate}: {e}", file=sys.stderr)
+                    validation_data = {}
+                break
+        
+        # Use first candidate path if validation file doesn't exist
+        if not validation_file:
+            validation_file = validation_file_candidates[0]
+        
+        # Create logs directory if needed
+        os.makedirs(os.path.dirname(validation_file), exist_ok=True)
+        
+        # Update validation entries with actions
+        if not validation_data:
+            validation_data = {}
+        
+        # Get Validation Entries array
+        validation_entries = validation_data.get('Validation Entries', [])
+        saved_count = 0
+        
+        def _normalize_path(path_value: str) -> str:
+            if not path_value:
+                return ''
+            try:
+                return os.path.normpath(str(path_value)).replace('\\', '/')
+            except Exception:
+                return str(path_value).replace('\\', '/')
+
+        def _suffix_from_sub(path_value: str) -> str:
+            p = _normalize_path(path_value)
+            marker = '/sub-'
+            idx = p.find(marker)
+            return p[idx + 1:] if idx >= 0 else ''
+
+        # For each action, find and update the matching validation entry
+        for file_path, action_data in actions.items():
+            action_text = action_data.get('action', '')
+            note = action_data.get('note', '')
+            timestamp = datetime.now().isoformat()
+            normalized_requested = _normalize_path(file_path)
+            requested_suffix = _suffix_from_sub(file_path)
+            matched = False
+            
+            # Find matching entry by file path (robust against absolute/relative differences)
+            for entry in validation_entries:
+                entry_file = entry.get('file') or entry.get('BIDS File') or ''
+                entry_source = entry.get('source_file') or entry.get('Source File') or ''
+                entry_file_norm = _normalize_path(entry_file)
+                entry_source_norm = _normalize_path(entry_source)
+                entry_file_suffix = _suffix_from_sub(entry_file)
+                entry_source_suffix = _suffix_from_sub(entry_source)
+
+                is_match = (
+                    normalized_requested and (
+                        normalized_requested == entry_file_norm or
+                        normalized_requested == entry_source_norm or
+                        (requested_suffix and requested_suffix == entry_file_suffix) or
+                        (requested_suffix and requested_suffix == entry_source_suffix)
+                    )
+                )
+
+                if is_match:
+                    entry['bids_action'] = action_text
+                    # Keep both timestamp keys for backward compatibility with existing UI/data.
+                    entry['action_timestamp'] = timestamp
+                    entry['bids_action_timestamp'] = timestamp
+                    entry['action_user_note'] = note
+                    saved_count += 1
+                    matched = True
+                    break
+
+            if not matched:
+                print(
+                    f"[BIDS Actions Save] No matching validation entry for action path: {file_path}",
+                    file=sys.stderr
+                )
+        
+        # Write back to bids_validation.json
+        with open(validation_file, 'w') as f:
+            json.dump(validation_data, f, indent=2)
+        
+        _cleanup_paths([cfg_src, cfg_tmp])
+        return JSONResponse({
+            'success': True,
+            'saved_count': saved_count,
+            'validation_file': validation_file
+        })
+        
+    except Exception as e:
+        print(f"[BIDS Actions Save API] Error: {e}", file=sys.stderr)
+        return JSONResponse({'error': str(e)}, status_code=500)
+
+
+@app.post('/api/bids/actions/load')
+async def api_bids_actions_load(config: RawConfig):
+    """Load saved BIDS file actions from bids_validation.json validation entries."""
+    try:
+        cfg_src = None
+        cfg_tmp = None
+        
+        # Resolve config
+        cfg_src, cfg_tmp, err = _resolve_config_source(config.config_path, config.config_yaml)
+        if err:
+            return err
+            
+        # Load config
+        cfg_dict = _load_config_dict(cfg_src)
+        if not cfg_dict:
+            _cleanup_paths([cfg_src, cfg_tmp])
+            return JSONResponse({'error': 'invalid config'}, status_code=400)
+        
+        # Build candidate paths for bids_validation.json (prefer validation.json)
+        validation_file_candidates = []
+        project = cfg_dict.get('Project') or {}
+        root = project.get('Root') or cfg_dict.get('Root') or ''
+        name = project.get('Name') or cfg_dict.get('Name') or ''
+        bids_path = project.get('BIDS') or cfg_dict.get('BIDS') or ''
+        
+        if root and name:
+            validation_file_candidates.append(os.path.join(root, name, 'logs', 'bids_validation.json'))
+        if root:
+            validation_file_candidates.append(os.path.join(root, 'logs', 'bids_validation.json'))
+        if bids_path:
+            bids_logs = os.path.join(os.path.dirname(bids_path), 'logs')
+            validation_file_candidates.append(os.path.join(bids_logs, 'bids_validation.json'))
+        
+        # Try to find and read actions from bids_validation.json validation entries
+        all_actions = {}
+        for candidate in validation_file_candidates:
+            if os.path.exists(candidate):
+                try:
+                    with open(candidate, 'r') as f:
+                        validation_data = json.load(f)
+                    # Extract actions from validation entries where bids_action is not empty
+                    validation_entries = validation_data.get('Validation Entries', [])
+                    for entry in validation_entries:
+                        if entry.get('bids_action'):
+                            file_path = entry.get('file', '')
+                            if file_path:
+                                all_actions[file_path] = {
+                                    'action': entry.get('bids_action'),
+                                    'timestamp': entry.get('action_timestamp') or entry.get('bids_action_timestamp'),
+                                    'note': entry.get('action_user_note', '')
+                                }
+                    break
+                except Exception as e:
+                    print(f"[BIDS Actions Load] Error reading {candidate}: {e}", file=sys.stderr)
+                    pass
+        
+        _cleanup_paths([cfg_src, cfg_tmp])
+        
+        return JSONResponse({
+            'success': True,
+            'actions': all_actions,
+            'count': len(all_actions)
+        })
+        
+    except Exception as e:
+        print(f"[BIDS Actions Load API] Error: {e}", file=sys.stderr)
+        return JSONResponse({'error': str(e)}, status_code=500)
 
 
 @app.get('/api/ping')

@@ -18,8 +18,260 @@
 
   function renderJSONPreview(obj){ const container = document.createElement('div'); const pretty = `<pre style="background:#fafafa;color:#111;padding:12px;border-radius:6px;overflow:auto;max-height:360px">${JSON.stringify(obj, null, 2)}</pre>`; container.innerHTML = `<div class="report-details">${pretty}</div>`; return container; }
 
-  function renderTSVPreview(text, rows=8){ const rowsArr = text.split('\n').slice(0,rows).map(r=>r.split('\t'));
-    const wrapper = document.createElement('div'); const table = document.createElement('table'); table.style.width='100%'; table.style.borderCollapse='collapse'; table.style.fontSize='12px'; rowsArr.forEach((row, ridx)=>{ const tr = document.createElement('tr'); row.forEach(c=>{ const td = document.createElement(ridx===0 ? 'th' : 'td'); td.textContent = c; td.style.border='1px solid #eee'; td.style.padding='6px'; tr.appendChild(td); }); table.appendChild(tr); }); wrapper.appendChild(table); return wrapper; }
+  function renderReportWithValidation(reportObj) {
+    const wrapper = document.createElement('div');
+    
+    // Add validation warnings/success panel
+    const warningsPanel = renderValidationWarnings(reportObj);
+    if (warningsPanel) {
+      wrapper.appendChild(warningsPanel);
+    }
+    
+    // Add collapsible JSON details section
+    const detailsSection = document.createElement('div');
+    detailsSection.style.marginTop = '16px';
+    
+    const detailsTitle = document.createElement('div');
+    detailsTitle.style.fontWeight = 'bold';
+    detailsTitle.style.marginBottom = '8px';
+    detailsTitle.style.cursor = 'pointer';
+    detailsTitle.style.color = '#0066cc';
+    detailsTitle.style.fontSize = '13px';
+    detailsTitle.innerHTML = '▶ Full Report Details (JSON)';
+    detailsSection.appendChild(detailsTitle);
+    
+    const detailsContent = document.createElement('div');
+    detailsContent.style.display = 'none';
+    detailsContent.style.marginTop = '8px';
+    
+    const jsonPreview = renderJSONPreview(reportObj);
+    detailsContent.appendChild(jsonPreview);
+    detailsSection.appendChild(detailsContent);
+    
+    detailsTitle.addEventListener('click', () => {
+      if (detailsContent.style.display === 'none') {
+        detailsContent.style.display = 'block';
+        detailsTitle.innerHTML = '▼ Full Report Details (JSON)';
+      } else {
+        detailsContent.style.display = 'none';
+        detailsTitle.innerHTML = '▶ Full Report Details (JSON)';
+      }
+    });
+    
+    wrapper.appendChild(detailsSection);
+    _dbg('renderReportWithValidation', { hasValidation: !!reportObj['BIDS Summary'] });
+    return wrapper;
+  }
+
+  function renderValidationWarnings(reportObj) {
+    const container = document.createElement('div');
+    container.style.marginTop = '16px';
+    
+    // Extract BIDS Summary from report
+    const summary = reportObj && reportObj['BIDS Summary'] ? reportObj['BIDS Summary'] : null;
+    if (!summary) {
+      container.innerHTML = '<div style="color:#999;font-size:12px">No validation summary available</div>';
+      return container;
+    }
+    
+    const invalidCount = summary['Invalid BIDS Files'] || 0;
+    const totalCount = summary['Total Files'] || 0;
+    const complianceRate = summary['Compliance Rate (%)'] || 0;
+    const validationIssues = summary['Validation Issues'] || null;
+    
+    // Create warning panel if there are invalid files
+    if (invalidCount > 0) {
+      const warningPanel = document.createElement('div');
+      warningPanel.style.backgroundColor = '#fff3cd';
+      warningPanel.style.border = '1px solid #ffc107';
+      warningPanel.style.borderRadius = '4px';
+      warningPanel.style.padding = '12px 14px';
+      warningPanel.style.marginBottom = '12px';
+      
+      const warningTitle = document.createElement('div');
+      warningTitle.style.fontWeight = 'bold';
+      warningTitle.style.color = '#856404';
+      warningTitle.style.marginBottom = '8px';
+      warningTitle.style.fontSize = '13px';
+      warningTitle.innerHTML = `⚠️ ${invalidCount} file(s) do not meet BIDS specification`;
+      warningPanel.appendChild(warningTitle);
+      
+      // Compliance stats
+      const statsDiv = document.createElement('div');
+      statsDiv.style.fontSize = '12px';
+      statsDiv.style.color = '#714d1a';
+      statsDiv.style.marginBottom = '8px';
+      statsDiv.innerHTML = `
+        <div>• Total files: <strong>${totalCount}</strong></div>
+        <div>• Compliant: <strong style="color:#28a745">${totalCount - invalidCount}</strong></div>
+        <div>• Non-compliant: <strong style="color:#dc3545">${invalidCount}</strong></div>
+        <div>• Compliance rate: <strong style="color:${complianceRate >= 95 ? '#28a745' : complianceRate >= 80 ? '#ffc107' : '#dc3545'}">${complianceRate}%</strong></div>
+      `;
+      warningPanel.appendChild(statsDiv);
+      
+      // Validation issues breakdown
+      if (validationIssues && validationIssues.issues) {
+        const issuesDiv = document.createElement('div');
+        issuesDiv.style.fontSize = '12px';
+        issuesDiv.style.color = '#714d1a';
+        issuesDiv.style.marginTop = '10px';
+        issuesDiv.style.paddingTop = '10px';
+        issuesDiv.style.borderTop = '1px solid #ffc107';
+        issuesDiv.innerHTML = '<strong>Common issues:</strong>';
+        
+        const issuesList = document.createElement('ul');
+        issuesList.style.margin = '6px 0 0 16px';
+        issuesList.style.paddingLeft = '0';
+        
+        Object.entries(validationIssues.issues).forEach(([issue, count]) => {
+          const li = document.createElement('li');
+          li.style.marginBottom = '4px';
+          li.textContent = `${issue} (${count} file${count !== 1 ? 's' : ''})`;
+          issuesList.appendChild(li);
+        });
+        issuesList.style.listStyle = 'disc';
+        issuesDiv.appendChild(issuesList);
+        
+        // Remediation tips
+        if (validationIssues.remediation) {
+          const remediationDiv = document.createElement('div');
+          remediationDiv.style.marginTop = '10px';
+          remediationDiv.style.paddingTop = '10px';
+          remediationDiv.style.borderTop = '1px solid #ffc107';
+          remediationDiv.innerHTML = '<strong>Remediation:</strong>';
+          
+          const remediationList = document.createElement('ul');
+          remediationList.style.margin = '6px 0 0 16px';
+          remediationList.style.paddingLeft = '0';
+          remediationList.style.listStyle = 'disc';
+          
+          Object.entries(validationIssues.remediation).forEach(([issue, remedy]) => {
+            const li = document.createElement('li');
+            li.style.marginBottom = '4px';
+            li.style.fontSize = '11px';
+            li.innerHTML = `<strong>${issue}:</strong> ${remedy}`;
+            remediationList.appendChild(li);
+          });
+          
+          remediationDiv.appendChild(remediationList);
+          issuesDiv.appendChild(remediationDiv);
+        }
+        
+        warningPanel.appendChild(issuesDiv);
+      }
+      
+      // BIDS documentation link
+      const docLink = document.createElement('div');
+      docLink.style.marginTop = '12px';
+      docLink.style.paddingTop = '10px';
+      docLink.style.borderTop = '1px solid #ffc107';
+      docLink.style.fontSize = '11px';
+      docLink.innerHTML = '📖 <a href="https://bids.neuroimaging.io/getting_started/index.html" target="_blank" style="color:#0066cc;text-decoration:none">BIDS Getting Started</a> | <a href="https://bids-specification.readthedocs.io/en/stable/modality-specific-files/magnetoencephalography.html" target="_blank" style="color:#0066cc;text-decoration:none">MEG Specification</a>';
+      warningPanel.appendChild(docLink);
+      
+      container.appendChild(warningPanel);
+    } else {
+      // All files compliant
+      const successPanel = document.createElement('div');
+      successPanel.style.backgroundColor = '#d4edda';
+      successPanel.style.border = '1px solid #28a745';
+      successPanel.style.borderRadius = '4px';
+      successPanel.style.padding = '12px 14px';
+      successPanel.style.marginBottom = '12px';
+      
+      const successTitle = document.createElement('div');
+      successTitle.style.fontWeight = 'bold';
+      successTitle.style.color = '#155724';
+      successTitle.style.marginBottom = '6px';
+      successTitle.style.fontSize = '13px';
+      successTitle.innerHTML = '✓ All files meet BIDS specification';
+      successPanel.appendChild(successTitle);
+      
+      const statsDiv = document.createElement('div');
+      statsDiv.style.fontSize = '12px';
+      statsDiv.style.color = '#155724';
+      statsDiv.innerHTML = `${totalCount} file(s) with 100% compliance rate`;
+      successPanel.appendChild(statsDiv);
+      
+      container.appendChild(successPanel);
+    }
+    
+    // Summary stats table
+    const summaryTable = document.createElement('div');
+    summaryTable.style.marginTop = '16px';
+    summaryTable.style.fontSize = '12px';
+    
+    const summaryTitle = document.createElement('div');
+    summaryTitle.style.fontWeight = 'bold';
+    summaryTitle.style.marginBottom = '8px';
+    summaryTitle.style.color = '#333';
+    summaryTitle.textContent = 'Conversion Summary';
+    summaryTable.appendChild(summaryTitle);
+    
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.border = '1px solid #ddd';
+    
+    const summaryFields = [
+      ['Status', summary['Conversion Status'] || 'N/A'],
+      ['Total Files', totalCount],
+      ['Valid BIDS', totalCount - invalidCount],
+      ['Invalid BIDS', invalidCount],
+      ['Compliance', complianceRate + '%'],
+      ['Dataset Description', summary['Data description'] || 'Not found'],
+      ['Participants File', summary['Participants file'] || 'Not found']
+    ];
+    
+    summaryFields.forEach(([label, value], idx) => {
+      const tr = document.createElement('tr');
+      tr.style.backgroundColor = idx % 2 === 0 ? '#f9f9f9' : '#fff';
+      
+      const td1 = document.createElement('td');
+      td1.style.padding = '8px';
+      td1.style.fontWeight = 'bold';
+      td1.style.borderBottom = '1px solid #eee';
+      td1.style.width = '40%';
+      td1.textContent = label;
+      tr.appendChild(td1);
+      
+      const td2 = document.createElement('td');
+      td2.style.padding = '8px';
+      td2.style.borderBottom = '1px solid #eee';
+      td2.textContent = value;
+      tr.appendChild(td2);
+      
+      table.appendChild(tr);
+    });
+    
+    summaryTable.appendChild(table);
+    container.appendChild(summaryTable);
+    
+    _dbg('renderValidationWarnings', { invalidCount, totalCount, complianceRate });
+    return container;
+  }
+
+  function renderTSVPreview(text, rows=8){
+    const rowsArr = text.split('\n').slice(0,rows).map(r=>r.split('\t'));
+    const wrapper = document.createElement('div');
+    const table = document.createElement('table');
+    table.style.width='100%';
+    table.style.borderCollapse='collapse';
+    table.style.fontSize='12px';
+    rowsArr.forEach((row, ridx)=>{
+      const tr = document.createElement('tr');
+      row.forEach(c=>{
+        const td = document.createElement(ridx===0 ? 'th' : 'td');
+        td.textContent = c;
+        td.style.border='1px solid #eee';
+        td.style.padding='6px';
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    wrapper.appendChild(table);
+    return wrapper;
+  }
 
   function renderHTMLPreview(html){ const frame = document.createElement('iframe'); frame.style.width='100%'; frame.style.height='420px'; frame.style.border='1px solid #ddd'; frame.srcdoc = html; return frame; }
 
@@ -464,9 +716,10 @@
     }
   }
 
-  window.AppReport = { openReportView, updateReportArea, renderJSONPreview, renderTSVPreview, renderHTMLPreview, updateStats, renderTree, clearReport, loadBIDSDirectory };
+  window.AppReport = { openReportView, updateReportArea, renderJSONPreview, renderTSVPreview, renderHTMLPreview, updateStats, renderTree, clearReport, loadBIDSDirectory, renderValidationWarnings, renderReportWithValidation };
 
-  // Attempt to probe and load bids_results.json candidates. If candidates
+  // Attempt to probe and load validation/report JSON candidates.
+  // Prefer bids_validation.json; fall back to bids_results.json.
   // parameter is provided (array of paths) we'll try those; otherwise we will
   // infer candidates from visible config form fields (project root + name or
   // BIDS output path). This is useful as a manual fallback when the auto-load
@@ -485,12 +738,20 @@
         const bids = (document.getElementById('config_bids_path')?.value || '').trim();
         const derived = [];
         // Try project root logs first (most common)
-        if (projectRoot) derived.push(`${projectRoot.replace(/\/$/, '')}/logs/bids_results.json`);
+        if (projectRoot) {
+          derived.push(`${projectRoot.replace(/\/$/, '')}/logs/bids_validation.json`);
+          derived.push(`${projectRoot.replace(/\/$/, '')}/logs/bids_results.json`);
+        }
         // Then try project root + project name + logs
-        if (projectRoot && projectName) derived.push(`${projectRoot.replace(/\/$/, '')}/${projectName}/logs/bids_results.json`);
+        if (projectRoot && projectName) {
+          derived.push(`${projectRoot.replace(/\/$/, '')}/${projectName}/logs/bids_validation.json`);
+          derived.push(`${projectRoot.replace(/\/$/, '')}/${projectName}/logs/bids_results.json`);
+        }
         // Finally try BIDS path variations
         if (bids && (bids.includes('/') || bids.startsWith('.') || bids.startsWith('~'))) {
+          derived.push(`${bids.replace(/\/$/, '')}/logs/bids_validation.json`);
           derived.push(`${bids.replace(/\/$/, '')}/logs/bids_results.json`);
+          derived.push(`${bids.replace(/\/$/, '')}/bids_validation.json`);
           derived.push(`${bids.replace(/\/$/, '')}/bids_results.json`);
         }
         candidates = derived;
@@ -506,26 +767,28 @@
             const obj = window._lastReportPayloads[candidate];
             if (output) output.textContent += `[AppReport] using cached payload for ${candidate}\n`;
             if (window.AppReport && typeof window.AppReport.updateStats === 'function'){
-              const rows = Array.isArray(obj) ? obj : (obj['Report Table'] || []);
-              const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
+              const rows = Array.isArray(obj) ? obj : (obj['Validation Entries'] || obj['Report Table'] || []);
+              const subjects = new Set(rows.map(r => r.Participant || r.participant).filter(Boolean));
               const subjectSessions = {};
               rows.forEach(r => {
-                if (r.Participant && r.Session) {
-                  if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
-                  subjectSessions[r.Participant].add(r.Session);
+                const participant = r.Participant || r.participant;
+                const session = r.Session || r.session;
+                if (participant && session) {
+                  if (!subjectSessions[participant]) subjectSessions[participant] = new Set();
+                  subjectSessions[participant].add(session);
                 }
               });
               const sessionCounts = Object.values(subjectSessions).map(s => s.size);
               const countFreq = {};
               let maxCount = 0, modeSessions = 0;
               sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
-              const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
+              const taskSet = new Set(); rows.forEach(r => { const task = r.Task || r.task; if (task) taskSet.add(task); });
               console.log('[AppReport] Updating stats from cached payload:', { subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
               window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
             }
             // renderTree is now replaced by loadBIDSDirectory for a proper file browser
             // try { if (window.AppReport && typeof window.AppReport.renderTree === 'function') window.AppReport.renderTree(obj.bids_root || obj.bids_path || obj.root || obj.projectRoot || candidate, obj); } catch(e){}
-            try { if (window.AppReport && typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(obj)); } catch(e){}
+            try { if (window.AppReport && typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderReportWithValidation(obj)); } catch(e){}
             if (output) output.textContent += `[AppReport] loaded (cached) ${candidate}\n`;
             delete window._lastReportPayloads[candidate];
             return true;
@@ -543,20 +806,22 @@
           // render the JSON/preview
           if (window.AppReport && typeof window.AppReport.updateStats === 'function'){
             // calculate basic counts similar to config loader
-            const rows = Array.isArray(obj) ? obj : (obj['Report Table'] || []);
-            const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
+            const rows = Array.isArray(obj) ? obj : (obj['Validation Entries'] || obj['Report Table'] || []);
+            const subjects = new Set(rows.map(r => r.Participant || r.participant).filter(Boolean));
             const subjectSessions = {};
             rows.forEach(r => {
-              if (r.Participant && r.Session) {
-                if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
-                subjectSessions[r.Participant].add(r.Session);
+              const participant = r.Participant || r.participant;
+              const session = r.Session || r.session;
+              if (participant && session) {
+                if (!subjectSessions[participant]) subjectSessions[participant] = new Set();
+                subjectSessions[participant].add(session);
               }
             });
             const sessionCounts = Object.values(subjectSessions).map(s => s.size);
             const countFreq = {};
             let maxCount = 0, modeSessions = 0;
             sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
-            const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
+            const taskSet = new Set(); rows.forEach(r => { const task = r.Task || r.task; if (task) taskSet.add(task); });
             console.log('[AppReport] Updating stats from fetched data:', { subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
             window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
           }
@@ -565,7 +830,7 @@
           //   try { window.AppReport.renderTree(obj.bids_root || obj.bids_path || obj.root || obj.projectRoot || candidate, obj); } catch(e){}
           // }
           if (window.AppReport && typeof window.AppReport.updateReportArea === 'function'){
-            try { window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(obj)); } catch(e){}
+            try { window.AppReport.updateReportArea(window.AppReport.renderReportWithValidation(obj)); } catch(e){}
           }
           // bring the view up so users see results
           // do not auto-open the Report view here; leave view switching to the user
@@ -600,20 +865,22 @@
             const cached = window._lastReportPayloads[candidate];
             if (!cached) continue;
             try { if (typeof window.AppReport.updateStats === 'function') {
-                const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
-                const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
+                const rows = Array.isArray(cached) ? cached : (cached['Validation Entries'] || cached['Report Table'] || []);
+                const subjects = new Set(rows.map(r => r.Participant || r.participant).filter(Boolean));
                 const subjectSessions = {};
                 rows.forEach(r => {
-                  if (r.Participant && r.Session) {
-                    if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
-                    subjectSessions[r.Participant].add(r.Session);
+                  const participant = r.Participant || r.participant;
+                  const session = r.Session || r.session;
+                  if (participant && session) {
+                    if (!subjectSessions[participant]) subjectSessions[participant] = new Set();
+                    subjectSessions[participant].add(session);
                   }
                 });
                 const sessionCounts = Object.values(subjectSessions).map(s => s.size);
                 const countFreq = {};
                 let maxCount = 0, modeSessions = 0;
                 sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
-                const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
+                const taskSet = new Set(); rows.forEach(r => { const task = r.Task || r.task; if (task) taskSet.add(task); });
                 console.log('[AppReport] Immediate-apply updating stats:', { subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
                 window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
               } } catch(e){}
@@ -741,26 +1008,37 @@
     // Wire report button
     document.getElementById('reportBtn')?.addEventListener('click', async () => {
       try {
-        const reportFile = (document.getElementById('config_root_path')?.value || '') + '/.natmeg/bids_results.json';
-        _dbg('Loading report from', reportFile);
-        const resp = await fetch('api/get-file?file=' + encodeURIComponent(reportFile));
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const cached = await resp.json();
+        const rootPath = (document.getElementById('config_root_path')?.value || '').trim();
+        const candidateFiles = [
+          `${rootPath}/.natmeg/bids_validation.json`,
+          `${rootPath}/.natmeg/bids_results.json`
+        ];
+        let cached = null;
+        for (const reportFile of candidateFiles) {
+          _dbg('Loading report from', reportFile);
+          const resp = await fetch('api/get-file?file=' + encodeURIComponent(reportFile));
+          if (!resp.ok) continue;
+          cached = await resp.json();
+          break;
+        }
+        if (!cached) throw new Error('No report file found (.natmeg/bids_validation.json or .natmeg/bids_results.json)');
         if (typeof window.AppReport.updateStats === 'function') {
-          const rows = Array.isArray(cached) ? cached : (cached['Report Table'] || []);
-          const subjects = new Set(rows.map(r => r.Participant).filter(Boolean));
+          const rows = Array.isArray(cached) ? cached : (cached['Validation Entries'] || cached['Report Table'] || []);
+          const subjects = new Set(rows.map(r => r.Participant || r.participant).filter(Boolean));
           const subjectSessions = {};
           rows.forEach(r => {
-            if (r.Participant && r.Session) {
-              if (!subjectSessions[r.Participant]) subjectSessions[r.Participant] = new Set();
-              subjectSessions[r.Participant].add(r.Session);
+            const participant = r.Participant || r.participant;
+            const session = r.Session || r.session;
+            if (participant && session) {
+              if (!subjectSessions[participant]) subjectSessions[participant] = new Set();
+              subjectSessions[participant].add(session);
             }
           });
           const sessionCounts = Object.values(subjectSessions).map(s => s.size);
           const countFreq = {};
           let maxCount = 0, modeSessions = 0;
           sessionCounts.forEach(c => { countFreq[c] = (countFreq[c] || 0) + 1; if (countFreq[c] > maxCount) { maxCount = countFreq[c]; modeSessions = c; } });
-          const taskSet = new Set(); rows.forEach(r => { if (r.Task) taskSet.add(r.Task); });
+          const taskSet = new Set(); rows.forEach(r => { const task = r.Task || r.task; if (task) taskSet.add(task); });
           window.AppReport.updateStats({ subjects: subjects.size, sessions: modeSessions, tasks: taskSet.size });
         }
         if (typeof window.AppReport.updateReportArea === 'function') window.AppReport.updateReportArea(window.AppReport.renderJSONPreview(cached));

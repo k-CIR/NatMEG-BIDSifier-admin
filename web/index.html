@@ -362,64 +362,97 @@
       </div>
 
       <div id="main-report" class="main-view view-hidden">
-        <h3>Results</h3>
-        <div style="display:flex; gap:10px; align-items:center; margin-top:8px;"></div>
-          <button id="reportBtn" class="btn">📊 Report</button>
-        <div class="flex-1"></div>
-        
+        <h3>Validation & Results</h3>
+        <!-- Results area -->
         <div class="card" style="margin-top:14px">
-          <div style="display:flex; justify-content:space-between; gap:8px; align-items:center">
-            <div id="reportProgressContainer" class="progress-container" style="flex:1">
-              <div class="progress">
-                <div id="reportProgressBar" class="bar"></div>
-              </div>
-              <div id="reportProgressText" class="muted" style="margin-top:6px">Idle</div>
+          <!-- Dataset summary stats -->
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-bottom:16px;" id="statsContainer" class="stats-hidden">
+            <div style="padding:12px; border-radius:6px; border:1px solid #eee; text-align:center; background:#fafafa;">
+              <div style="font-size:24px; font-weight:700; color:#860052;" id="stat-subjects">—</div>
+              <div style="color:#666; font-size:11px; margin-top:4px;">Subjects</div>
+            </div>
+            <div style="padding:12px; border-radius:6px; border:1px solid #eee; text-align:center; background:#fafafa;">
+              <div style="font-size:24px; font-weight:700; color:#860052;" id="stat-sessions">—</div>
+              <div style="color:#666; font-size:11px; margin-top:4px;">Sessions</div>
+            </div>
+            <div style="padding:12px; border-radius:6px; border:1px solid #eee; text-align:center; background:#fafafa;">
+              <div style="font-size:24px; font-weight:700; color:#860052;" id="stat-tasks">—</div>
+              <div style="color:#666; font-size:11px; margin-top:4px;">Tasks</div>
             </div>
           </div>
 
-          <div style="display:flex; gap:12px; margin-top:12px; align-items:flex-start;">
-            <div style="flex: 1; min-width:320px;">
-              <h4>Summary</h4>
-              <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;" id="statsContainer" class="stats-hidden">
-                <div style="padding:10px; border-radius:6px; border:1px solid #eee; text-align:center;">
-                  <div style="font-size:22px; font-weight:700" id="stat-subjects">—</div>
-                  <div style="color:#666; font-size:12px">Subjects</div>
-                </div>
-                <div style="padding:10px; border-radius:6px; border:1px solid #eee; text-align:center;">
-                  <div style="font-size:22px; font-weight:700" id="stat-sessions">—</div>
-                  <div style="color:#666; font-size:12px">Mode Sessions</div>
-                </div>
-                <div style="padding:10px; border-radius:6px; border:1px solid #eee; text-align:center;">
-                  <div style="font-size:22px; font-weight:700" id="stat-tasks">—</div>
-                  <div style="color:#666; font-size:12px">Tasks</div>
-                </div>
-              </div>
-
-              <h4 style="margin-top:12px">BIDS Browser</h4>
-              <div id="bidsBrowserContainer" style="border:1px solid #eee; border-radius:6px; background:#fafafa; display:flex; flex-direction:column; min-height:400px; padding: 12px; overflow: auto;">
+          <!-- Main content: validation summary and BIDS browser -->
+          <div style="margin-top:0;">
+            <!-- BIDS file browser -->
+              <h4 style="margin-bottom:8px;">BIDS File Structure</h4>
+              <div id="bidsBrowserContainer" style="border:1px solid #eee; border-radius:6px; background:#fafafa; display:flex; flex-direction:column; min-height:380px; padding: 12px; overflow: auto;">
                 <div style="color: #999; font-size: 13px; text-align: center;">Set BIDS path in Configuration to view directory</div>
               </div>
-              
-              <style>
-                .stats-hidden { opacity: 0.3; }
-                .stats-hidden > div { color: #999; }
-                .bids-item:hover {
-                  background-color: #f0f7ff !important;
-                }
-              </style>
-              
-              <!-- Load external BIDS Browser module -->
-              <script src="app-bids-browser.js"></script>
+            <div style="min-width:320px;">
+              <h4 style="margin-bottom:8px;">BIDS Validation</h4>
+              <!-- Controls toolbar -->
+              <div style="display:flex; gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap;">
+                <!-- Primary action: unified validation -->
+                <button id="validateBtn" class="btn primary" title="Generate BIDS validation report with file compliance checks and dataset-level analysis">✓ Validate Dataset</button>
+                
+                <!-- Deprecated/helper buttons (hidden for clean UI, kept for backward compatibility) -->
+                <button id="reportBtn" class="btn" style="display:none;">📊 Report</button>
+                <button id="qaBtn" class="btn" style="display:none;" title="QA Analysis (legacy - use Validate Dataset instead)">🔍 QA</button>
+                
+                <!-- Progress indicator -->
+                <div id="reportProgressContainer" class="progress-container inline" style="flex:1; min-width:200px; display:none;">
+                  <div class="progress compact">
+                    <div id="reportProgressBar" class="bar"></div>
+                  </div>
+                  <div id="reportProgressText" class="muted" style="margin-top:4px; font-size:11px;">Running validation...</div>
+                </div>
+              </div>
+              <br>
+
+              <!-- Validation warnings/summary panel (populated by app-report.js) -->
+              <div id="validationSummaryPanel" style="margin-bottom:16px;">
+                <div style="color: #999; font-size: 13px; text-align: center; padding:24px;">
+                  No validation results yet — click <strong>Validate Dataset</strong> to generate report
+                </div>
+              </div>
+
+              <!-- Active Issues Detail (QA findings with action buttons) -->
+              <h4 style="margin-top:16px; margin-bottom:8px;">Active Issues Detail</h4>
+              <div id="qaResultsContainer" style="border:1px solid #eee; border-radius:6px; background:#fafafa; min-height:200px; padding:12px; overflow:auto;">
+                <div style="color: #999; font-size: 13px; text-align: center; padding:24px;">No QA issues found</div>
+              </div>
             </div>
-
-            <!-- <div style="flex: 1 1 420px; min-width:360px;">
-              <h4>Console</h4>
-              <pre id="reportOutput" class="console-output small">—</pre>
-
-              <h4 style="margin-top:12px">Report View</h4>
-              <div id="reportArea">No report yet — run Analyse or Report to generate output</div>
-            </div> -->
           </div>
+          
+          <!-- Shared styles for validation and QA displays -->
+          <style>
+            .stats-hidden { opacity: 0.3; }
+            .stats-hidden > div { color: #999; }
+            
+            .progress.compact { height: 4px; }
+            .progress-container.inline { display: flex; align-items: center; gap: 8px; }
+            
+            .bids-item:hover { background-color: #f0f7ff !important; }
+            
+            .qa-issue { padding: 8px; margin: 4px 0; border-left: 3px solid #ccc; border-radius: 3px; font-size: 12px; }
+            .qa-issue.error { border-left-color: #d32f2f; background-color: #ffebee; }
+            .qa-issue.warning { border-left-color: #f57f17; background-color: #fff8e1; }
+            .qa-issue.info { border-left-color: #1976d2; background-color: #e3f2fd; }
+            
+            .issue-action-btn:hover {
+              opacity: 0.85;
+              transform: translateY(-1px);
+              box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+            }
+            .issue-action-btn:active {
+              transform: translateY(0);
+              box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            }
+          </style>
+          
+          <!-- Load analytics modules -->
+          <script src="app-bids-browser.js?v=43"></script>
+          <script src="app-qa.js?v=43"></script>
         </div>
       </div>
 
@@ -441,10 +474,27 @@
         </div>
       </div>
     </div>
+
+    <!-- Action Note modal (hidden by default) -->
+    <div id="actionNoteModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="actionNoteTitle">
+        <h3 id="actionNoteTitle">Mark File as OK</h3>
+        <p class="hint">Please provide a note explaining why this file should be marked as valid:</p>
+        <div style="display:flex; gap:8px; align-items:flex-start; margin-top:8px; flex-direction:column;">
+          <textarea id="actionNoteInput" class="input-wide-compact" placeholder="e.g., File exists but not indexed, Already verified manually, etc." style="height:80px; resize:vertical; padding:8px; font-family:monospace; font-size:12px;"></textarea>
+          <small style="color:#666;">Note is mandatory (required field)</small>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:12px; justify-content:flex-end;">
+          <button id="actionNoteCancel" class="btn">Cancel</button>
+          <button id="actionNoteConfirm" class="btn primary" disabled>Mark as OK</button>
+        </div>
+      </div>
+    </div>
     <script src="/editor-model.js"></script>
     <script src="/app-filebrowser.js"></script>
-    <script src="/app-report.js"></script>
-    <script src="/app-config.js"></script>
+    <script src="/app-report.js?v=29"></script>
+    <script src="/app-config.js?v=29"></script>
     <script src="/app-editor.js"></script>
     <script src="/app.js"></script>
     <script src="/app-jobs.js"></script>

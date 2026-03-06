@@ -3,6 +3,7 @@ numpy>=2.0.0
 pandas>=2.0.0
 pyyaml>=6.0
 tqdm>=4.64.0
+requests>=2.28.0
 
 # MEG/EEG and BIDS conversion
 mne>=1.5.0
@@ -16,6 +17,11 @@ pybv >= 0.7.3
 jupyter>=1.0.0
 ipython>=8.0.0
 bids-validator>=1.14.0
+
+# Optional: Local AI/LLM for advanced QA analysis (install ollama separately)
+# For advanced QA features, install ollama: https://ollama.ai
+# Then pull a model: ollama pull neural-chat
+# QA agent will auto-detect and use it if available
 
 # Server / web app dependencies (merged from server/requirements.txt)
 fastapi>=0.95

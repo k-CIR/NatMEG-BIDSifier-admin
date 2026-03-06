@@ -1066,9 +1066,51 @@
     if (document.getElementById('saveTableServer')) document.getElementById('saveTableServer').click();
   }
 
+  function applyFilters() {
+    renderTableFromData();
+  }
+
+  function ensureLoaded() {
+    const container = document.getElementById('tableContainer');
+    const hasTable = !!(container && container.querySelector('table'));
+    if (hasTable) return true;
+    const loadBtn = document.getElementById('loadTableBtn');
+    if (loadBtn) {
+      loadBtn.click();
+      return false;
+    }
+    return false;
+  }
+
+  function setIssueFilters({ subject = '', session = '', task = '' } = {}) {
+    const setSubject = getFilterSelectionSet('subjectFilterSelect');
+    const setSession = getFilterSelectionSet('sessionFilterSelect');
+    const setTask = getFilterSelectionSet('taskFilterSelect');
+
+    setSubject.clear();
+    setSession.clear();
+    setTask.clear();
+
+    if (subject) {
+      const normalized = String(subject).startsWith('sub-') ? String(subject) : ('sub-' + String(subject));
+      setSubject.add(normalized);
+    }
+    if (session) {
+      const normalized = String(session).startsWith('ses-') ? String(session) : ('ses-' + String(session));
+      setSession.add(normalized);
+    }
+    if (task) {
+      setTask.add(String(task));
+    }
+
+    updateFilterCards();
+    buildAllFilterDropdowns();
+    renderTableFromData();
+  }
+
   // expose API
   window.AppEditor = {
-    openTableEditor, loadArtifact, renderTableFromData, addRowToTable, deleteSelectedRows, addColumnToTable, deleteColumnFromTable, sortTableByColumn, moveSelectedRows, applyToColumn, findReplaceInTable, downloadEditedTable, saveTableServer, saveTableCanonical
+    openTableEditor, loadArtifact, renderTableFromData, addRowToTable, deleteSelectedRows, addColumnToTable, deleteColumnFromTable, sortTableByColumn, moveSelectedRows, applyToColumn, findReplaceInTable, downloadEditedTable, saveTableServer, saveTableCanonical, applyFilters, ensureLoaded, setIssueFilters
   };
 
   // expose backwards-compatible globals for existing callers
