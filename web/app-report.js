@@ -1,12 +1,21 @@
 // Report view helpers — small module to manage report UI
 (function(){
+  function getViewNavItems(){
+    return Array.from(document.querySelectorAll('.nav-item[data-view]'));
+  }
+
+  function setActiveViewTab(view){
+    getViewNavItems().forEach((nav) => {
+      nav.classList.toggle('active', nav.getAttribute('data-view') === view);
+    });
+  }
+
   function openReportView(){
     document.getElementById('main-config')?.classList.add('view-hidden');
     document.getElementById('main-editor')?.classList.add('view-hidden');
     document.getElementById('main-execute')?.classList.add('view-hidden');
     document.getElementById('main-report')?.classList.remove('view-hidden');
-    document.querySelectorAll('.sidebar .nav-item').forEach(n => n.classList.remove('active'));
-    const rnav = document.querySelector('.sidebar .nav-item[data-view="main-report"]') || document.querySelector('.sidebar .nav-item[data-view="report"]'); if (rnav) rnav.classList.add('active');
+    setActiveViewTab('main-report');
     const _rbadge = document.getElementById('activeViewBadge'); if (_rbadge) _rbadge.textContent = 'view: report';
   }
 
@@ -716,7 +725,7 @@
     }
   }
 
-  window.AppReport = { openReportView, updateReportArea, renderJSONPreview, renderTSVPreview, renderHTMLPreview, updateStats, renderTree, clearReport, loadBIDSDirectory, renderValidationWarnings, renderReportWithValidation };
+  window.AppReport = { openReportView, setActiveViewTab, updateReportArea, renderJSONPreview, renderTSVPreview, renderHTMLPreview, updateStats, renderTree, clearReport, loadBIDSDirectory, renderValidationWarnings, renderReportWithValidation };
 
   // Attempt to probe and load validation/report JSON candidates.
   // Prefer bids_validation.json; fall back to bids_results.json.
@@ -911,8 +920,8 @@
     // nav clicks can open report view
     const reportBtn = document.getElementById('reportBtn');
     if (reportBtn) reportBtn.addEventListener('click', () => { if (window.AppJobs && typeof window.AppJobs.createJob === 'function') { /* AppJobs handles 'report' run */ } else { openReportView(); } });
-    // wire sidebar nav items to switch views
-    const navs = document.querySelectorAll('.sidebar .nav-item');
+    // wire primary view tabs to switch views
+    const navs = getViewNavItems();
     navs.forEach(n => n.addEventListener('click', () => {
       const view = n.getAttribute('data-view'); if (!view) return;
       // hide all web main views and electron-style content-view containers
@@ -923,7 +932,7 @@
       if (elMain) elMain.classList.remove('view-hidden');
       if (elLegacy) elLegacy.classList.remove('view-hidden');
       // update active state
-      navs.forEach(x=>x.classList.remove('active')); n.classList.add('active');
+      setActiveViewTab(view);
 
       // show/hide header and upload controls only for config view
       const header = document.querySelector('.header-bar');

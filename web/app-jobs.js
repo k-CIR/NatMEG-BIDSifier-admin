@@ -401,6 +401,11 @@
 
       // Ensure the execute view is visible and pick the visible output box
       document.getElementById('main-execute')?.classList.remove('view-hidden');
+      try {
+        if (window.AppReport && typeof window.AppReport.setActiveViewTab === 'function') {
+          window.AppReport.setActiveViewTab('main-execute');
+        }
+      } catch (e) { /* ignore */ }
       const output = _getVisibleOutputElement();
       if (output) output.textContent = `Job ${id}: status=${j.status} returncode=${j.returncode} logs=${j.logs_count}\n` + (output.textContent || '');
       // Update progress UI based on job status
